@@ -1,0 +1,26 @@
+:root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;color:#172d2a;background:#f4f6f3;font-size:14px}*{box-sizing:border-box}body{margin:0}main{max-width:1400px;margin:auto;padding:44px 40px}header{display:flex;align-items:center;justify-content:space-between;gap:24px}.eyebrow{color:#628279;font-size:11px;letter-spacing:2px;font-weight:700}h1{font-size:30px;letter-spacing:-1px;margin:12px 0}p{color:#657970;line-height:1.7}button,select,input{font:inherit;border:1px solid #d2ded8;border-radius:8px;padding:10px 12px;background:white;color:#214339}button{cursor:pointer}button:disabled{opacity:.5;cursor:wait}.primary{background:#186950;color:white;border-color:#186950}.actions{display:flex;gap:8px}#status{background:#e5ede7;padding:12px 16px;border-radius:8px;white-space:pre-line}#status.error{background:#fff0d8;color:#84500d}.filters{display:flex;gap:16px;flex-wrap:wrap;margin:26px 0}.filters label{display:flex;flex-direction:column;gap:8px;font-size:12px;color:#657970}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.cards article,.panel{background:white;border:1px solid #dce5df;border-radius:12px;padding:24px}.cards span{color:#6d8078;font-size:11px;letter-spacing:1px}.cards strong{display:block;font-size:32px;font-weight:600;margin-top:12px;font-variant-numeric:tabular-nums}.panel{margin:20px 0}h2{font-size:17px;margin:0}h2 small{font-weight:400;color:#8a9990}.panel p{font-size:12px;margin:8px 0 18px}#legend{display:flex;gap:20px;flex-wrap:wrap;padding:24px 4px 0;font-size:12px}#legend span{display:flex;align-items:center;gap:8px}.dot{width:10px;height:10px;border-radius:3px}.chart{overflow-x:auto;min-height:250px}.chart svg{display:block;height:280px;min-width:100%;font-family:inherit}.chart text{fill:#73847b;font-size:11px}.table-wrap{overflow:auto;max-height:440px;margin-top:16px}table{border-collapse:collapse;width:100%;font-size:12px;white-space:nowrap}th,td{text-align:right;padding:12px;border-bottom:1px solid #edf1ed}th{position:sticky;top:0;background:#f6f8f5;color:#63776c}td:first-child,th:first-child,td:nth-child(2),th:nth-child(2){text-align:left}footer{font-size:12px;color:#718076;line-height:1.8;margin-top:24px}.empty{padding:80px 20px;text-align:center;color:#76877d}@media(max-width:720px){main{padding:24px 16px}header{align-items:flex-start;flex-direction:column}.cards{grid-template-columns:1fr}.cards strong{font-size:26px}.panel{padding:16px}}
+
+/* 工具栏 Popup 固定在浏览器支持的范围内，内容在浮窗内滚动。 */
+html{width:780px;height:600px;overflow:hidden}
+body{width:780px;height:600px;overflow-y:auto;overflow-x:hidden}
+main{width:100%;padding:16px}
+header{gap:12px;align-items:center;flex-direction:row}
+h1{font-size:21px;margin:6px 0}
+header p{font-size:12px;margin:0}
+button,select,input{padding:7px 9px;font-size:12px}
+#status{font-size:12px;padding:8px 10px;margin:12px 0}
+.filters{gap:10px;margin:12px 0;display:grid;grid-template-columns:110px 130px 130px minmax(125px,1fr) 80px}
+.filters label{gap:5px;font-size:11px;min-width:0}
+.filters select,.filters input{width:100%;min-width:0}
+.cards{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.cards article{padding:12px}
+.cards strong{font-size:23px;margin-top:6px;overflow-wrap:anywhere}
+#legend{gap:12px;padding:12px 2px 0;font-size:11px}
+.panel{margin:12px 0;padding:12px}
+h2{font-size:14px}
+.panel p{font-size:11px;margin:5px 0 8px}
+.chart{min-height:180px}
+.chart svg{height:180px}
+.table-wrap{max-height:220px;margin-top:8px}
+th,td{padding:8px}
+footer{font-size:10px;margin-top:12px}

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Codex 用量统计</title>
+<link rel="stylesheet" href="dashboard.css">
+<body>
+<main>
+  <header><div><span class="eyebrow">CODEX / DAILY USAGE</span><h1>Codex 用量统计</h1><p>本机日志 · 北京时间 · 估算费用</p></div><div class="actions"><button id="update">检查更新</button><button id="refresh" class="primary">刷新数据</button></div></header>
+  <p id="status" role="status">正在读取上次统计…</p>
+  <section class="filters" aria-label="筛选条件">
+    <label>时间范围<select id="range"><option value="7" selected>最近 7 天</option><option value="30">最近 30 天</option><option value="all">全部历史</option><option value="custom">自定义</option></select></label>
+    <label>开始日期<input type="date" id="from"></label><label>结束日期<input type="date" id="to"></label>
+    <label>模型<select id="model"><option value="all">全部模型</option></select></label>
+    <label>柱状图<select id="layout"><option value="stacked">堆叠</option><option value="grouped">分组</option></select></label>
+  </section>
+  <section class="cards"><article><span>所选范围 TOKEN</span><strong id="tokens">—</strong></article><article><span>估算费用 / USD</span><strong id="cost">—</strong></article><article><span>使用模型</span><strong id="models">—</strong></article></section>
+  <div id="legend"></div>
+  <section class="panel"><h2>每日 Token</h2><p>输入、缓存与输出的合计；空白日期表示本地没有记录。</p><div id="token-chart" class="chart"></div></section>
+  <section class="panel"><h2>每日估算费用 <small>USD</small></h2><p>API 等价估算，不代表订阅实际扣费；未知费用不计入合计。</p><div id="cost-chart" class="chart"></div></section>
+  <section class="panel"><h2>模型明细</h2><div class="table-wrap"><table><thead><tr><th>日期</th><th>模型</th><th>非缓存输入</th><th>缓存读取</th><th>缓存写入</th><th>输出</th><th>总 Token</th><th>估算 USD</th></tr></thead><tbody id="details"></tbody></table></div></section>
+  <footer id="meta"></footer>
+</main>
+<script src="dashboard.js" type="module"></script>
+</body></html>
