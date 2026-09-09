@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Codex 每日用量",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "按天和模型查看 Codex Token 与估算费用",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2mlCBZru4MmRgGFaSiSXGZxWYnwUhwRSsq0kExkhVQZifNV05ymdjZJfcwb94SIkpm17paKPJTJH6bnqbv+rP3IAV0lpPH4n3bwkqK/kQ0gNHxb2OBjhW2w+CfQWSxqc3b948zn0KU114HSY9IyVo6Fh+3xf5gHrlcVjuao+AmdsBV1bDAq7N6CTRb29mtuurB28W09WNoy7gVu0CUgfs4OtepNMrWdA0w+3hri/5J8KYHsu9BXJ4YyTuxBOT70cN19CEigAFQJVk+pVa2Xyb32HdU3ULK0OdRz70hN66bbSMeF+3Oiz5dKHi6SPhb5nVwTjTm1Sr5wpCLLhXmlFdQIDAQAB",
   "permissions": [
@@ -9,9 +9,19 @@
   ],
   "action": {
     "default_title": "打开 Codex 用量浮窗",
-    "default_popup": "dashboard.html"
+    "default_popup": "dashboard.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
   },
   "background": {
     "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
   }
 }

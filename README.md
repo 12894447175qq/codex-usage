@@ -1,51 +1,123 @@
-# Codex 用量 · Edge 扩展
+# Codex Usage
 
-按北京时间、日期和模型展示 Token 与估算美元费用，支持 7 天、30 天、自定义范围及堆叠/分组柱状图。本目录独立于已有 Rewards 自动化。
+**English** | [简体中文](README.zh.md)
 
-## 安装（macOS）
+A compact Microsoft Edge extension that shows local Codex token usage and estimated costs by day and model, powered by [ccusage](https://ccusage.com/).
 
-需要 Node.js 20+、npm/npx、Microsoft Edge。
+Click the toolbar icon to open a **560 × 560 popup**. The current popup interface is in Chinese; this repository provides English and Chinese documentation.
 
-```sh
-cd /Users/xiaolongyitiao/project/auto
-node codex-usage/native/install.mjs
-```
+## Features
 
-在 Edge 扩展管理页 `edge://extensions` 打开开发者模式，点击“加载解压缩的扩展”，选择本目录的 `extension` 文件夹。将“Codex 每日用量”固定到 Edge 工具栏，点击其图标会在图标下方打开 780×600 的统计浮窗，不再新建标签页。浮窗内可滚动查看两张图表和明细；点击外部会关闭浮窗。首次打开自动同步，同步由后台继续执行，再次打开复用进行中的请求。
+- **Today by default**, with the last 7 days, last 30 days, and a custom date range. Preset ranges include today and use `Asia/Shanghai` time.
+- Filter by model, switch between **Token** and **Cost** charts, and choose stacked or grouped bars.
+- Token summaries use **亿 (100 million tokens)** with two decimal places: `0.01 亿` means 1 million tokens. Hover over the summary for the exact count.
+- Estimated cost summaries use USD with two decimal places; hover for additional precision. Unknown costs are marked separately and excluded from the known subtotal.
+- Expand the model details to see non-cached input, cache reads, cache writes, output, total tokens, and estimated costs.
+- A light interface with outlined filters, collapsible details, hover tooltips, and custom 16/32/48/128 px icons.
+- Daily ccusage update checks, output validation, version fallback, and preservation of the last successful report when synchronization fails.
 
-已加载旧版时，在 Edge 扩展管理页点击本扩展的“重新加载”，再点击工具栏图标即可使用新入口。不要用 `file://` 直接打开 HTML，该方式没有扩展通信能力。
+## Requirements
 
-移动项目或更换 Node 安装路径后，重新运行安装脚本。当前仅提供 macOS 注册脚本。
+- **macOS and Microsoft Edge**. The supplied native-host installer only supports this combination; Windows, Linux, and Chrome installation are not implemented.
+- Node.js 20 or later, with `node`, `npm`, and `npx` available in the installation terminal. Upstream ccusage releases may introduce additional runtime requirements.
+- Local Codex usage logs that ccusage can recognize. The usual Codex home is `~/.codex`.
+- Network access to download/update ccusage and retrieve pricing data.
 
-## 数据来源与更新
+The extension uses plain HTML, CSS, and JavaScript. No frontend build or `npm install` is required for this repository.
 
-本地程序调用以下命令，提取 `agents` 中的 Codex 分组。该统一报表包含逐模型费用；当前版本的 `codex daily` 仅提供每日总费用。
+## Installation
 
-```sh
-npx --yes ccusage@latest daily --by-agent --json --timezone Asia/Shanghai
-```
-
-统一报表会探测其他代理的本地日志，桥接层只保存和返回 Codex 汇总，不保存其他代理结果或对话正文。不读取账号密钥，也不请求官方账单。统计范围以 ccusage 能识别的本机日志为准；它不是整个账号跨设备用量。
-
-每天首次同步查询 npm 最新版，再以解析出的版本执行；不是长期锁定版本。手动“检查更新”可立即重试。新版输出必须通过日期、数值、模型/每日汇总检查才启用；新版失败回退最近成功版本。全部失败则保留旧数据并显示错误。打开页面和点击刷新会同步；未打开浏览器时不运行后台计划任务。
-
-价格由 ccusage/LiteLLM 提供。费用为 API 等价估算，非订阅实际扣费；Fast、长上下文、模型映射、价格历史等行为由 ccusage 决定。新模型缺价、回退标志或非零 Token 零费用时，显示未知费用，不当作免费。更新价格可能改变历史估算，不属于账单快照。
-
-默认缓存目录 `~/.codex-usage-edge/`，包含汇总、版本状态和主机启动脚本；原始会话不复制。上游程序与价格更新需要联网。主机仅接受本扩展的缓存/同步请求，不开放 HTTP 端口或任意命令执行接口。超过单次通信容量的报告会报错并保留缓存。
-
-## 验证
+Clone the repository and register the local Native Messaging host:
 
 ```sh
-node --test codex-usage/native/*.test.mjs
-node codex-usage/native/host.mjs --sync --check-update
+git clone https://github.com/12894447175qq/codex-usage.git
+cd codex-usage
+node native/install.mjs
 ```
 
-第二条会输出真实本机汇总（不要公开分享个人使用数据）。界面验收：日期与模型筛选、两种柱状图布局、明细合计、断网保留上次结果。首次无数据时应提示错误，不展示虚构数字。
+If you already have the project locally, run the installation command from its root directory.
 
-2026-09-09 验证：6 项 Node 测试通过，覆盖汇总校验、未知价格、版本回退、每日检查、失败缓存保留及 Native Messaging 分帧。真实日志同步获得 20 个有记录的日期；独立 Edge 测试配置中完成主机通信、两张图表、模型筛选及布局切换验证。日常 Edge 仍需用户按上文手动加载扩展：浏览器自动化安全策略禁止访问扩展管理页。
+1. Open `edge://extensions` in Edge.
+2. Enable **Developer mode**, choose **Load unpacked**, and select this repository's `extension` folder.
+3. Pin **Codex 每日用量** to the toolbar and click its icon.
 
-## 卸载
+The popup first loads the previous report, if available, and then synchronizes. The first run may take longer while ccusage downloads. Clicking outside closes the popup; an ongoing sync is held by the background worker, and reopening the popup reuses it.
 
-在 Edge 移除扩展；删除 `~/Library/Application Support/Microsoft Edge/NativeMessagingHosts/com.codex.usage.json` 即解除本地主机注册。可选删除 `~/.codex-usage-edge/` 以清除缓存。不会修改 Codex 日志。
+Keep the repository in place: the host launcher references its files. If the repository or Node installation moves, rerun `node native/install.mjs`. Opening `dashboard.html` directly through `file://` does not provide extension messaging and is not a supported way to use the app.
 
-参考：[ccusage Codex](https://ccusage.com/guide/codex/)、[JSON 输出](https://ccusage.com/guide/json-output)、[Edge Native Messaging](https://learn.microsoft.com/en-us/microsoft-edge/extensions/developer-guide/native-messaging)。
+## Updating
+
+After updating the repository files, click **Reload** on the extension card in `edge://extensions` to apply popup and icon changes.
+
+The popup's **刷新** button synchronizes usage. The header icon labeled **检查 ccusage 更新** checks for a newer ccusage release immediately; it does not update the extension's own files.
+
+On the first sync of each Beijing calendar day, the host queries npm for the latest ccusage version and runs that resolved version. Valid output becomes the new report and active version. If a candidate release fails to execute or its output is incompatible, the host attempts the last successful version. If synchronization still fails, the previous report remains available with an error message. No scheduled collection runs while the browser is closed.
+
+## Data and cost semantics
+
+The flow is:
+
+```text
+Local logs → ccusage JSON → validation and Codex-only aggregation
+           → Native Messaging → Edge popup
+```
+
+The host runs the resolved version of `ccusage daily --by-agent --json --timezone Asia/Shanghai`, with an isolated configuration and online pricing enabled. It extracts only the Codex group from the unified report, which supplies per-model costs.
+
+- The unified ccusage command can discover other coding agents' local logs. This project's bridge stores and returns only Codex aggregates, not other agents' results or conversation bodies.
+- Coverage depends on the logs available locally and supported by ccusage. This is **not an account-wide, cross-device usage report**. Blank chart dates mean no local records were found.
+- Costs are **API-equivalent estimates, not actual subscription charges**. Pricing and interpretation of Fast mode, long context, model aliases, and historical rates depend on ccusage and its pricing data.
+- Missing costs, fallback flags exposed in the model data, and zero costs with nonzero usage are treated as unknown. Pricing updates may change historical estimates; reports are not billing snapshots.
+- The bridge checks dates, numeric values, and consistency between model and daily totals. An empty report cannot replace an existing nonempty report. Responses larger than 900,000 bytes are rejected while preserving the cache.
+
+The default local state directory is `~/.codex-usage-edge/`, containing reports, version state, an isolated ccusage configuration, and the host launcher. The bridge does not copy original sessions or request account credentials or official billing records. Native Messaging accepts cache/sync requests from this extension without opening an HTTP server.
+
+## Development and verification
+
+Run these commands from the repository root:
+
+```sh
+node --test native/*.test.mjs
+node --check extension/dashboard.js
+node --check extension/background.js
+```
+
+To check real local synchronization and ccusage updates:
+
+```sh
+node native/host.mjs --sync --check-update
+```
+
+This prints personal usage aggregates to the terminal. To regenerate the committed SVG and PNG icons, use Python 3; no third-party Python packages are needed:
+
+```sh
+python3 scripts/generate-icons.py
+```
+
+The six automated tests cover normalization, unknown prices, inconsistent output, version fallback, daily update checks, cache preservation, and Native Messaging framing. The current compact UI has been checked with cached local data for date/model filtering, metric/layout switching, details expansion, and first-screen fit. The redesigned popup and icon still require verification through the actual Edge toolbar after reloading.
+
+## Troubleshooting
+
+| Symptom | Action |
+| --- | --- |
+| Cannot connect to the native host | Rerun `node native/install.mjs` in this checkout and reload the extension. The installer registers the host for macOS Edge. |
+| The previous interface or icon is still visible | Reload the extension in `edge://extensions`, then reopen the popup. |
+| Synchronization fails | Check network access and the availability of Node/npm/npx; use the CLI sync command above for diagnosis. Cached data keeps its original sync time. |
+| Costs are unknown or totals seem incomplete | Check the affected models and ccusage pricing support. Unknown costs are not zero-cost usage. |
+| No usage appears | Confirm that local Codex logs contain usage events supported by ccusage. Cloud-only or missing logs cannot be reconstructed by the extension. |
+
+## Uninstall
+
+Remove the extension from Edge and delete its native-host registration:
+
+```text
+~/Library/Application Support/Microsoft Edge/NativeMessagingHosts/com.codex.usage.json
+```
+
+Optionally delete `~/.codex-usage-edge/` to remove cached state and the launcher. Codex logs are not changed.
+
+## References
+
+- [ccusage Codex data source](https://ccusage.com/guide/codex/)
+- [ccusage JSON output](https://ccusage.com/guide/json-output)
+- [Edge Native Messaging](https://learn.microsoft.com/en-us/microsoft-edge/extensions/developer-guide/native-messaging)
