@@ -16,8 +16,10 @@ function useReport(value) {
   colors = new Map(names.map((name, i) => [name, palette[i % palette.length]]));
   $('model').replaceChildren(new Option('全部模型', 'all'), ...names.map(n => new Option(n, n)));
   if (names.includes(selected)) $('model').value = selected;
-  const latestQuota = [...(report.quota?.weekly ?? [])].sort((a, b) => a.date.localeCompare(b.date)).at(-1);
-  if (latestQuota) $('weekly-remaining').value = latestQuota.remainingPercent;
+  const bucket = $('quota-bucket').value;
+  const buckets = new Map((report.quota?.weekly ?? []).map(s => [s.limitId ?? 'codex', s.limitName ?? 'Codex（历史手工记录）']));
+  $('quota-bucket').replaceChildren(...[...buckets].sort(([a], [b]) => a === 'codex' ? -1 : b === 'codex' ? 1 : a.localeCompare(b)).map(([id, name]) => new Option(name, id)));
+  if (buckets.has(bucket)) $('quota-bucket').value = bucket;
   render();
   const synced = new Date(report.syncedAt);
   $('meta').textContent = synced.toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
@@ -94,8 +96,14 @@ function chart(id, days, names, metric) {
 function quotaChart(id, snapshots, from, to) {
   const container = $(id); container.replaceChildren();
   $('tooltip').hidden = true;
-  if (!snapshots.length) { const empty = node('div', '所选范围暂无额度快照，请先记录今天的剩余比例'); empty.className = 'empty'; container.append(empty); $('quota-latest').textContent = '—'; return; }
-  const width = Math.max(340, container.clientWidth, snapshots.length * 42);
+  $('quota-period').textContent = from === to ? `${from} · 按分钟采集` : `${from.slice(5)} — ${to.slice(5)} · 每日最后一次`;
+  $('quota-state').textContent = report.quota?.error ? `读取失败：${report.quota.error}；保留此前快照` : '打开或刷新时自动采集；未采集时段没有记录。';
+  if (!snapshots.length) { const empty = node('div', '所选范围暂无额度快照，点击刷新获取当前额度'); empty.className = 'empty'; container.append(empty); $('quota-latest').textContent = '—'; return; }
+  const latest = snapshots.at(-1);
+  const stamp = new Date(latest.capturedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+  $('quota-state').textContent += ` 最后采集 ${stamp}${latest.source === 'manual' ? '（手工）' : ''}${latest.resetsAt ? ' · 重置 ' + new Date(latest.resetsAt * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : ''}`;
+  if (from !== to) snapshots = [...new Map(snapshots.map(s => [s.date, s])).values()];
+  const width = Math.max(340, container.clientWidth);
   const height = 105, left = 42, right = 12, top = 18, graphWidth = width - left - right;
   const span = Math.max(1, (Date.parse(to) - Date.parse(from)) / 86400000);
   const svg = svgNode('svg', { width, height: 155, viewBox: `0 0 ${width} 155`, role: 'img', 'aria-label': '每日周额度剩余百分比折线图' });
@@ -105,13 +113,14 @@ function quotaChart(id, snapshots, from, to) {
     svg.append(svgNode('line', { x1: left, x2: width - right, y1: y, y2: y, 'stroke-dasharray': i === 4 ? '0' : '3 3' }));
     svg.append(svgNode('text', { x: left - 8, y: y + 4, 'text-anchor': 'end' }, `${value}%`));
   }
-  const point = (snapshot, index) => ({
-    x: from === to ? left + graphWidth / 2 : left + graphWidth * (Date.parse(snapshot.date) - Date.parse(from)) / 86400000 / span,
+  const startTime = Date.parse(snapshots[0].capturedAt), endTime = Date.parse(snapshots.at(-1).capturedAt);
+  const point = snapshot => ({
+    x: from === to ? (endTime === startTime ? left + graphWidth / 2 : left + graphWidth * (Date.parse(snapshot.capturedAt) - startTime) / (endTime - startTime)) : left + graphWidth * (Date.parse(snapshot.date) - Date.parse(from)) / 86400000 / span,
     y: top + height * (1 - Math.max(0, Math.min(100, snapshot.remainingPercent)) / 100),
   });
   const points = snapshots.map(point);
   const path = points.map((p, i) => {
-    const contiguous = i > 0 && (Date.parse(snapshots[i].date) - Date.parse(snapshots[i - 1].date)) / 86400000 === 1;
+    const contiguous = i > 0 && snapshots[i].resetsAt === snapshots[i - 1].resetsAt && (from === to || (Date.parse(snapshots[i].date) - Date.parse(snapshots[i - 1].date)) / 86400000 === 1);
     return `${contiguous ? 'L' : 'M'} ${p.x} ${p.y}`;
   }).join(' ');
   svg.append(svgNode('path', { d: path }));
@@ -129,11 +138,9 @@ function quotaChart(id, snapshots, from, to) {
     circle.addEventListener('focus', () => { const box = circle.getBoundingClientRect(); showTip(box.right, box.top); });
     for (const event of ['mouseleave', 'blur']) circle.addEventListener(event, () => { $('tooltip').hidden = true; });
     svg.append(circle);
-    if (i % Math.max(1, Math.ceil(snapshots.length / (width / 55))) === 0) svg.append(svgNode('text', { x: p.x, y: 146, 'text-anchor': 'middle' }, snapshot.date.slice(5)));
+    if (i % Math.max(1, Math.ceil(snapshots.length / (width / 70))) === 0) svg.append(svgNode('text', { x: p.x, y: 146, 'text-anchor': 'middle' }, from === to ? new Date(snapshot.capturedAt).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', hour12: false }) : snapshot.date.slice(5)));
   });
-  const latest = snapshots.at(-1);
   $('quota-latest').textContent = `${latest.remainingPercent}%`;
-  $('quota-period').textContent = from === to ? `${from} · 周额度` : `${from.slice(5)} — ${to.slice(5)} · 周额度`;
   container.append(svg);
 }
 function render() {
@@ -169,7 +176,7 @@ function render() {
   $('legend').hidden = quota;
   $('model-details').hidden = quota;
   if (quota) {
-    const snapshots = (report.quota?.weekly ?? []).filter(snapshot => snapshot.date >= from && snapshot.date <= to).sort((a, b) => a.date.localeCompare(b.date));
+    const snapshots = (report.quota?.weekly ?? []).filter(snapshot => (snapshot.limitId ?? 'codex') === $('quota-bucket').value && snapshot.date >= from && snapshot.date <= to).sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
     quotaChart('quota-chart', snapshots, from, to);
   } else {
     chart(activeMetric === 'totalTokens' ? 'token-chart' : 'cost-chart', days, names, activeMetric);
@@ -178,7 +185,6 @@ function render() {
 }
 async function refresh(force = false) {
   if (busy) return; busy = true; $('refresh').disabled = $('update').disabled = true;
-  $('record-quota').disabled = true;
   status(force ? '正在检查新版并校验数据…' : '正在读取本机用量，首次运行可能需要下载 ccusage…');
   try {
     const result = await request('sync', force);
@@ -186,23 +192,10 @@ async function refresh(force = false) {
     if (!result.ok) status(`同步失败，${report ? '正在显示上次成功结果' : '尚无可用数据'}：${result.error}`, true);
     else status(['已同步', ...(result.report.warnings ?? [])].join('\n'), result.report.warnings?.length > 0);
   } catch (e) { status(`无法连接本地采集程序。请按 README 安装后重试。${report ? ' 当前保留上次成功结果。' : ''}\n${e.message}`, true); }
-  finally { busy = false; $('refresh').disabled = $('update').disabled = false; $('record-quota').disabled = false; }
+  finally { busy = false; $('refresh').disabled = $('update').disabled = false; }
 }
-async function recordQuota() {
-  if (busy) return;
-  const remainingPercent = Number($('weekly-remaining').value);
-  if (!Number.isFinite(remainingPercent) || remainingPercent < 0 || remainingPercent > 100) return status('请输入 0 到 100 之间的周剩余百分比', true);
-  busy = true; $('refresh').disabled = $('update').disabled = $('record-quota').disabled = true;
-  status('正在保存今天的周额度快照…');
-  try {
-    const result = await request('recordQuota', false, { window: 'weekly', remainingPercent });
-    if (result.report) useReport(result.report);
-    if (!result.ok) status(`保存失败：${result.error}`, true);
-    else status(`已记录今天的周额度：${remainingPercent}%`);
-  } catch (e) { status(`无法保存额度快照：${e.message}`, true); }
-  finally { busy = false; $('refresh').disabled = $('update').disabled = $('record-quota').disabled = false; }
-}
-$('refresh').onclick = () => refresh(); $('update').onclick = () => refresh(true); $('record-quota').onclick = recordQuota;
+$('refresh').onclick = () => refresh(); $('update').onclick = () => refresh(true);
+$('quota-bucket').onchange = render;
 function selectMetric(metric) {
   activeMetric = metric;
   const panels = { totalTokens: 'token-panel', costUSD: 'cost-panel', quota: 'quota-panel' };

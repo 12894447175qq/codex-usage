@@ -12,8 +12,10 @@ const host = fileURLToPath(new URL('./host.mjs', import.meta.url));
 test('新版校验失败回退、每天检查一次、完全失败保留缓存、协议分帧', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'codex-usage-test-'));
   const env = { ...process.env, CODEX_USAGE_STATE_DIR: join(dir, 'state'), PATH: `${dir}:${process.env.PATH}`, TEST_DIR: dir };
+  env.CODEX_USAGE_CODEX_BIN = join(dir, 'codex');
   const raw = { daily: [{ period: '2026-09-09', agents: [{ agent: 'codex', inputTokens: 10, cacheReadTokens: 20, cacheCreationTokens: 0, outputTokens: 5, totalTokens: 35, totalCost: .1, modelBreakdowns: [{ modelName: 'model', inputTokens: 10, cacheReadTokens: 20, cacheCreationTokens: 0, outputTokens: 5, cost: .1 }] }] }] };
   try {
+    await writeFile(env.CODEX_USAGE_CODEX_BIN, `#!${process.execPath}\nrequire('readline').createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);if(m.id===1)console.log(JSON.stringify({id:1,result:{}}));if(m.id===2)console.log(JSON.stringify({id:2,result:{rateLimits:{primary:{usedPercent:7,windowDurationMins:10080,resetsAt:1900000000}}}}));});`, { mode: 0o700 });
     await writeFile(join(dir, 'raw.json'), JSON.stringify(raw));
     await writeFile(join(dir, 'npm'), `#!${process.execPath}\nconst fs=require('fs');fs.appendFileSync(process.env.TEST_DIR+'/checks','x');console.log(JSON.stringify('2.0.0'));`, { mode: 0o700 });
     await writeFile(join(dir, 'npx'), `#!${process.execPath}\nconst fs=require('fs');fs.appendFileSync(process.env.TEST_DIR+'/npx-args',JSON.stringify(process.argv.slice(2))+'\\n');if(process.env.TEST_FAIL)process.exit(1);console.log(process.argv.includes('ccusage@2.0.0')?'{}':fs.readFileSync(process.env.TEST_DIR+'/raw.json','utf8'));`, { mode: 0o700 });
@@ -37,10 +39,16 @@ test('新版校验失败回退、每天检查一次、完全失败保留缓存�
       child.stdin.write(Buffer.concat([header, body]));
     });
     const quotaResponse = JSON.parse(recordQuota.subarray(4));
-    assert.equal(quotaResponse.ok, true); assert.equal(quotaResponse.report.quota.weekly[0].remainingPercent, 95);
+    assert.equal(quotaResponse.ok, true); assert.equal(quotaResponse.report.quota.weekly.find(s => s.source === 'manual').remainingPercent, 95);
     const before = await readFile(join(env.CODEX_USAGE_STATE_DIR, 'report.json'), 'utf8');
     const failed = await run({ TEST_FAIL: '1' }); assert.equal(failed.ok, false); assert.equal(failed.report.stale, true);
+    assert.ok(failed.report.quota.weekly.some(s => s.source === 'codex' && s.remainingPercent === 93), 'Token 失败仍保留自动额度');
     assert.equal(await readFile(join(env.CODEX_USAGE_STATE_DIR, 'report.json'), 'utf8'), before);
+    const quotaBefore = JSON.parse(await readFile(join(env.CODEX_USAGE_STATE_DIR, 'quota.json'), 'utf8')).snapshots;
+    const quotaFailed = await run({ CODEX_USAGE_CODEX_BIN: '/nonexistent/codex' });
+    assert.equal(quotaFailed.ok, true, '额度失败不阻塞 Token');
+    assert.match(quotaFailed.report.quota.error, /无法启动/);
+    assert.deepEqual(quotaFailed.report.quota.weekly, quotaBefore);
     const result = await new Promise((resolve, reject) => {
       const child = spawn(process.execPath, [host], { env }); const chunks = [];
       child.stdout.on('data', chunk => chunks.push(chunk)); child.on('error', reject);

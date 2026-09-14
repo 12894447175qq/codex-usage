@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile, rename, open, unlink } from 'node:fs/promis
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { normalize } from './normalize.mjs';
+import { readQuota, weeklySnapshots, mergeQuota } from './quota.mjs';
 import { createQuotaSnapshot, mergeDays, migrateReport, upsertQuotaSnapshot } from './history.mjs';
 
 const exec = promisify(execFile);
@@ -57,10 +58,10 @@ async function loadQuota() {
   const stored = await load(quotaPath);
   if (!stored) return { schemaVersion: 1, snapshots: [] };
   if (!Array.isArray(stored.snapshots)) throw new Error('本地额度快照格式无效');
-  return { schemaVersion: 1, snapshots: stored.snapshots };
+  return { ...stored, snapshots: stored.snapshots };
 }
 function quotaView(quota) {
-  return { weekly: (quota?.snapshots ?? []).filter(snapshot => snapshot?.window === 'weekly') };
+  return { weekly: (quota?.snapshots ?? []).filter(snapshot => snapshot?.window === 'weekly'), error: quota.error ?? null, checkedAt: quota.checkedAt ?? null };
 }
 function cachedReport(history, quota, cached) {
   if (cached) return { ...cached, quota: quotaView(quota), historyDays: history.days.length };
@@ -81,11 +82,20 @@ function cachedReport(history, quota, cached) {
   };
 }
 async function sync(force) {
+  // 额度独立落盘；即使随后 ccusage 失败，也保留这次真实额度。
+  let quotaState = await loadQuota();
+  try {
+    const snapshots = weeklySnapshots(await readQuota());
+    if (!snapshots.length) throw new Error('当前账号未返回可用的周额度');
+    quotaState = { ...mergeQuota(quotaState, snapshots), error: null, checkedAt: new Date().toISOString() };
+  } catch (e) { quotaState = { ...quotaState, error: e.message, checkedAt: new Date().toISOString() }; }
+  await save(quotaPath, quotaState);
   const state = await load(statePath) ?? {};
   const history = await loadHistory();
   const range = history.days.length ? { since: day(), until: day() } : {};
   let candidate = state.active;
   const warnings = [];
+  if (quotaState.error) warnings.push(`额度刷新失败，保留历史快照：${quotaState.error}`);
   if (force || state.checkedDay !== day()) {
     state.checkedDay = day();
     try {

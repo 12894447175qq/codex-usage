@@ -30,8 +30,8 @@
     <div id="token-panel" role="tabpanel" aria-labelledby="tab-tokens"><div id="token-chart" class="chart"></div></div>
     <div id="cost-panel" role="tabpanel" aria-labelledby="tab-cost" hidden><div id="cost-chart" class="chart"></div></div>
     <div id="quota-panel" role="tabpanel" aria-labelledby="tab-quota" hidden>
-      <div class="quota-editor"><label class="quota-field"><span>本周剩余</span><input id="weekly-remaining" type="number" min="0" max="100" step="0.01" placeholder="例如 95"></label><span>%</span><button id="record-quota" class="quota-button">记录今天</button></div>
-      <p class="quota-help">请把使用面板或 Codex <code>/status</code> 看到的周剩余百分比记录下来。</p>
+      <div class="quota-editor"><label class="quota-field"><span>周额度类别</span><select id="quota-bucket"><option value="codex">Codex</option></select></label></div>
+      <p id="quota-state" class="quota-help">打开或刷新时自动采集，同一分钟保留最新值。</p>
       <div class="quota-caption"><span id="quota-period">按天记录</span><span>最新 <b id="quota-latest">—</b></span></div>
       <div id="quota-chart" class="chart"></div>
     </div>

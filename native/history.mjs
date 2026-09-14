@@ -49,7 +49,8 @@ export function createQuotaSnapshot({ date, capturedAt, window = 'weekly', remai
 export function upsertQuotaSnapshot(history, snapshot) {
   const snapshots = Array.isArray(history?.snapshots) ? history.snapshots : [];
   const key = `${snapshot.window}:${snapshot.date}`;
-  const next = snapshots.filter(item => `${item?.window}:${item?.date}` !== key);
+  // 兼容旧浮窗的手工写入，但不能覆盖自动采集的分钟快照。
+  const next = snapshots.filter(item => item.source !== 'manual' || `${item?.window}:${item?.date}` !== key);
   next.push(snapshot);
   next.sort((a, b) => `${a.date}:${a.capturedAt}`.localeCompare(`${b.date}:${b.capturedAt}`));
   return { schemaVersion: 1, snapshots: next };

@@ -14,7 +14,7 @@ Click the toolbar icon to open a **560 × 560 popup**. The current popup interfa
 - Estimated cost summaries use USD with two decimal places; hover for additional precision. Unknown costs are marked separately and excluded from the known subtotal.
 - Expand the model details to see non-cached input, cache reads, cache writes, output, total tokens, and estimated costs.
 - The first sync builds a local daily history ledger; later syncs read history locally, refresh only today with the dynamically resolved ccusage version, and merge the result into the full report.
-- The **Quota** tab shows a daily line chart of the weekly remaining percentage. Record the value read from the usage dashboard or Codex `/status` for the current day.
+- The **Quota** tab automatically reads weekly limits on every open/refresh. Today shows minute snapshots; multi-day ranges show the last capture per day. Categories and reset times are kept separately.
 - A light interface with outlined filters, collapsible details, hover tooltips, and custom 16/32/48/128 px icons.
 - Daily ccusage update checks, output validation, version fallback, and preservation of the last successful report when synchronization fails.
 
@@ -72,8 +72,8 @@ The host runs the resolved version of `ccusage daily --by-agent --json --timezon
 - Missing costs, fallback flags exposed in the model data, and zero costs with nonzero usage are treated as unknown. Pricing updates may change historical estimates; reports are not billing snapshots.
 - The bridge checks dates, numeric values, and consistency between model and daily totals. An empty report cannot replace an existing nonempty report. Responses larger than 900,000 bytes are rejected while preserving the cache.
 
-- `~/.codex-usage-edge/history.json` stores daily Codex snapshots, `report.json` stores the merged messaging cache, and `quota.json` stores the last weekly quota snapshot for each day. These files stay local; quota snapshots are never inferred from token usage.
-- The official guidance points to the usage dashboard or Codex `/status` for current limits and reset times. This extension does not use an unofficial account endpoint, so the Quota tab asks you to record the percentage you read. See the [official OpenAI documentation](https://learn.chatgpt.com/docs/pricing).
+- `history.json` stores usage history, `report.json` caches the merged report, and `quota.json` stores quota snapshots in `~/.codex-usage-edge/`. Same-minute captures replace the previous value for the same category and reset cycle; older manual entries remain available.
+- Quotas come from the local logged-in Codex `app-server` method `account/rateLimits/read`, independently of ccusage. It reads status without starting an AI task or spending reset credits. Requires a compatible Codex installation; `CODEX_USAGE_CODEX_BIN` can select its executable. Failed reads retain prior snapshots and display an error. Collection runs on open/refresh, not every minute in the background; percentages retain server precision.
 
 The default local state directory is `~/.codex-usage-edge/`, containing reports, version state, an isolated ccusage configuration, and the host launcher. The bridge does not copy original sessions or request account credentials or official billing records. Native Messaging accepts cache/sync requests from this extension without opening an HTTP server.
 
@@ -99,7 +99,7 @@ This prints personal usage aggregates to the terminal. To regenerate the committ
 python3 scripts/generate-icons.py
 ```
 
-The nine automated tests cover normalization, unknown prices, inconsistent output, history migration and merging, quota snapshots, version fallback, daily update checks, cache preservation, and Native Messaging framing. The current compact UI has been checked with cached local data for date/model filtering, metric/layout switching, details expansion, and first-screen fit. The Quota tab still needs one real entry through the Edge toolbar after reloading.
+Automated tests cover normalization, history migration, minute deduplication, weekly-window detection, failure retention, version fallback and Native Messaging. Run the checks above. Reload the extension in Edge after updating.
 
 ## Troubleshooting
 
@@ -109,7 +109,7 @@ The nine automated tests cover normalization, unknown prices, inconsistent outpu
 | The previous interface or icon is still visible | Reload the extension in `edge://extensions`, then reopen the popup. |
 | Synchronization fails | Check network access and the availability of Node/npm/npx; use the CLI sync command above for diagnosis. The local ledger and previous merged report remain available. |
 | Costs are unknown or totals seem incomplete | Check the affected models and ccusage pricing support. Unknown costs are not zero-cost usage. |
-| The quota chart is empty | Read the weekly remaining percentage from the usage dashboard or Codex `/status`, enter it in the Quota tab, and click **记录今天**. The extension does not guess account limits from tokens. |
+| The quota chart is empty | Log in to a compatible local Codex installation, then refresh. Dates before the first capture cannot be reconstructed. |
 | No usage appears | Confirm that local Codex logs contain usage events supported by ccusage. Cloud-only or missing logs cannot be reconstructed by the extension. |
 
 ## Uninstall
