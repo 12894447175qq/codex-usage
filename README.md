@@ -1,129 +1,102 @@
-# Codex Usage
+# Codex Usage Edge
 
 **English** | [简体中文](README.zh.md)
 
-A compact Microsoft Edge extension that shows local Codex token usage and estimated costs by day and model, powered by [ccusage](https://ccusage.com/).
-
-Click the toolbar icon to open a **560 × 560 popup**. The current popup interface is in Chinese; this repository provides English and Chinese documentation.
+A Microsoft Edge extension integrating [capisoft-lib/codex_usage](https://github.com/capisoft-lib/codex_usage). Click the toolbar icon for a compact view of Codex tokens, API-equivalent cost, an activity heatmap, and quota history. Use the full-dashboard button to open every upstream dashboard feature in an Edge tab.
 
 ## Features
 
-- **Today by default**, with the last 7 days, last 30 days, and a custom date range. Preset ranges include today and use `Asia/Shanghai` time.
-- Filter by model, switch between **Token** and **Cost** charts, and choose stacked or grouped bars.
-- Token summaries use **亿 (100 million tokens)** with two decimal places: `0.01 亿` means 1 million tokens. Hover over the summary for the exact count.
-- Estimated cost summaries use USD with two decimal places; hover for additional precision. Unknown costs are marked separately and excluded from the known subtotal.
-- Expand the model details to see non-cached input, cache reads, cache writes, output, total tokens, and estimated costs.
-- The first sync builds a local daily history ledger; later syncs read history locally, refresh only today with the dynamically resolved ccusage version, and merge the result into the full report.
-- The **Quota** tab automatically reads weekly limits on every open/refresh. Today shows minute snapshots; multi-day ranges show the last capture per day. Categories and reset times are kept separately.
-- A light interface with outlined filters, collapsible details, hover tooltips, and custom 16/32/48/128 px icons.
-- Daily ccusage update checks, output validation, version fallback, and preservation of the last successful report when synchronization fails.
+The compact popup keeps the existing focused visual style:
+
+- Today by default, with the last 7 days, last 30 days, and a custom range, grouped in `Asia/Shanghai`.
+- Per-model token and cost filters with stacked or grouped bar charts.
+- Token totals in units of 100 million with two decimal places: `0.01 亿` means one million tokens; hover shows exact counts.
+- A heatmap showing 24 hourly cells for today and daily activity for longer ranges, following the model filter.
+- Automatic five-hour and weekly quota observations, including history, reset time, plan, and reset count when available.
+- Unknown models retain their token totals and show unknown cost instead of zero cost.
+
+The full dashboard uses upstream `codex_usage` 1.5.1 and retains its existing features:
+
+- Projects, conversations, model calls, turns, duration, tokens, cache rate, API-equivalent cost, and Codex credits.
+- Standard/Fast tiers, long-context and historical pricing, plus custom pricing.
+- Hourly, daily, monthly, rolling 12-month, all-history, and custom charts with drill-down.
+- Current and historical weekly quota periods, five-hour quota, reset boundaries, cumulative use, and end-of-period forecasts.
+- Filters for project, model, usage, and conversation name, with nine languages and multiple themes.
+- Optional mini desktop window, Docker, headless collector, and self-hosted or OpenAI Sites multi-machine Mesh.
+
+## Data flow
+
+```text
+~/.codex/sessions + archived_sessions + session_index.jsonl
+                              ↓
+capisoft codex_usage incremental collector and dated pricing catalog
+                 ↓                         ↓
+       compact Edge aggregates       full Edge dashboard
+```
+
+The extension does not run `npx ccusage`. Its Native Messaging host starts the upstream local service on `127.0.0.1` when needed. The popup receives only daily, per-model, and hourly aggregates, while the full dashboard keeps the upstream API and behavior intact.
 
 ## Requirements
 
-- **macOS and Microsoft Edge**. The supplied native-host installer only supports this combination; Windows, Linux, and Chrome installation are not implemented.
-- Node.js 20 or later, with `node`, `npm`, and `npx` available in the installation terminal. Upstream ccusage releases may introduce additional runtime requirements.
-- Local Codex usage logs that ccusage can recognize. The usual Codex home is `~/.codex`.
-- Network access to download/update ccusage and retrieve pricing data.
+- macOS and Microsoft Edge. The current Native Messaging installer does not yet register Windows, Linux, or Chrome hosts; the retained upstream dashboard remains cross-platform.
+- Node.js 20 or newer.
+- Git to initialize and update the `vendor/codex_usage` submodule.
+- Local Codex session logs, normally under `~/.codex`. Live account quota requires an installed and signed-in Codex CLI or desktop app.
 
-The extension uses plain HTML, CSS, and JavaScript. No frontend build or `npm install` is required for this repository.
-
-## Installation
-
-Clone the repository and register the local Native Messaging host:
+## Install
 
 ```sh
-git clone https://github.com/12894447175qq/codex-usage.git
+git clone --recurse-submodules https://github.com/12894447175qq/codex-usage.git
 cd codex-usage
 node native/install.mjs
 ```
 
-If you already have the project locally, run the installation command from its root directory.
+For an existing checkout, the installer initializes a missing submodule and builds the upstream dashboard assets automatically.
 
-1. Open `edge://extensions` in Edge.
-2. Enable **Developer mode**, choose **Load unpacked**, and select this repository's `extension` folder.
-3. Pin **Codex 每日用量** to the toolbar and click its icon.
+Then:
 
-The popup first loads the cached report and local history, then synchronizes today. The first run, or a run without a history ledger, reads the complete ccusage report and may take longer while ccusage downloads; later syncs query only today's Beijing-time date and merge it with local history. Clicking outside closes the popup; an ongoing sync is held by the background worker, and reopening the popup reuses it.
+1. Open `edge://extensions`.
+2. Enable Developer mode.
+3. Choose **Load unpacked** and select the repository's `extension` directory.
+4. Pin the extension and click its toolbar icon.
 
-Keep the repository in place: the host launcher references its files. If the repository or Node installation moves, rerun `node native/install.mjs`. Opening `dashboard.html` directly through `file://` does not provide extension messaging and is not a supported way to use the app.
+The four-tile button starts or reuses the local `codex_usage` service and opens the full dashboard in a new tab. It prefers `http://127.0.0.1:4317` and selects a free local port if that port is occupied.
 
-## Updating
+## Update upstream
 
-After updating the repository files, click **Reload** on the extension card in `edge://extensions` to apply popup and icon changes.
-
-The popup's **刷新** button synchronizes usage. The header icon labeled **检查 ccusage 更新** checks for a newer ccusage release immediately; it does not update the extension's own files.
-
-On the first sync of each Beijing calendar day, the host queries npm for the latest ccusage version and runs that resolved version. The first ledger build reads the complete report; with an existing ledger, only today is refreshed and older dates remain local snapshots. Valid output becomes the new report and active version. If a candidate release fails to execute or its output is incompatible, the host attempts the last successful version. If synchronization still fails, the previous report remains available with an error message. No scheduled collection runs while the browser is closed.
-
-## Data and cost semantics
-
-The flow is:
-
-```text
-Local logs → ccusage JSON → validation and Codex-only aggregation
-           → Native Messaging → Edge popup
+```sh
+git submodule update --remote vendor/codex_usage
+node native/install.mjs
 ```
 
-The host runs the resolved version of `ccusage daily --by-agent --json --timezone Asia/Shanghai`, with an isolated configuration and online pricing enabled. The first run has no date filter; with an existing history ledger it adds `--since today --until today`, then merges today's result into the local history. It extracts only the Codex group from the unified report, which supplies per-model costs.
+Run the tests and commit the updated submodule pointer. The integration validates the upstream `apiVersion`; an incompatible API keeps the last successful popup cache and reports the error.
 
-- The unified ccusage command can discover other coding agents' local logs. This project's bridge stores and returns only Codex aggregates, not other agents' results or conversation bodies.
-- Coverage depends on the logs available locally and supported by ccusage. This is **not an account-wide, cross-device usage report**. Blank chart dates mean no local records were found.
-- Costs are **API-equivalent estimates, not actual subscription charges**. Pricing and interpretation of Fast mode, long context, model aliases, and historical rates depend on ccusage and its pricing data.
-- Missing costs, fallback flags exposed in the model data, and zero costs with nonzero usage are treated as unknown. Pricing updates may change historical estimates; reports are not billing snapshots.
-- The bridge checks dates, numeric values, and consistency between model and daily totals. An empty report cannot replace an existing nonempty report. Responses larger than 900,000 bytes are rejected while preserving the cache.
+## Local data and privacy
 
-- `history.json` stores usage history, `report.json` caches the merged report, and `quota.json` stores quota snapshots in `~/.codex-usage-edge/`. Same-minute captures replace the previous value for the same category and reset cycle; older manual entries remain available.
-- Quotas come from the local logged-in Codex `app-server` method `account/rateLimits/read`, independently of ccusage. It reads status without starting an AI task or spending reset credits. Requires a compatible Codex installation; `CODEX_USAGE_CODEX_BIN` can select its executable. Failed reads retain prior snapshots and display an error. Collection runs on open/refresh, not every minute in the background; percentages retain server precision.
+Extension state lives under `~/.codex-usage-edge/`:
 
-The default local state directory is `~/.codex-usage-edge/`, containing reports, version state, an isolated ccusage configuration, and the host launcher. The bridge does not copy original sessions or request account credentials or official billing records. Native Messaging accepts cache/sync requests from this extension without opening an HTTP server.
+- `history.json`: daily ledger for the compact popup.
+- `report.json`: last successful aggregate.
+- `quota.json`: five-hour and weekly quota observations.
+- `capisoft-usage-snapshot.json`: upstream incremental analysis snapshot.
+- `capisoft-runtime.json`: local dashboard process and address.
 
-## Development and verification
+Local mode does not read `auth.json` and does not send raw JSONL, prompts, responses, reasoning, tool output, or file contents to the extension. The optional Mesh sends minimized signed snapshots only after explicit configuration.
 
-Run these commands from the repository root:
+Cost is an API-equivalent estimate, not a ChatGPT subscription bill. Pricing coverage follows the upstream dated catalog; unknown models keep their token usage visible.
+
+## Development and validation
 
 ```sh
 node --test native/*.test.mjs
 node --check extension/dashboard.js
 node --check extension/background.js
+npm test --prefix vendor/codex_usage
+node native/host.mjs --sync --refresh
 ```
 
-To check real local synchronization and ccusage updates:
+The extension tests cover upstream conversion, heatmap data, both quota windows, cache fallback, and Native Messaging. Upstream tests cover parsing, pricing, forecasting, languages, Mesh, privacy, and the local service.
 
-```sh
-node native/host.mjs --sync --check-update
-```
+## License
 
-This prints personal usage aggregates to the terminal. To regenerate the committed SVG and PNG icons, use Python 3; no third-party Python packages are needed:
-
-```sh
-python3 scripts/generate-icons.py
-```
-
-Automated tests cover normalization, history migration, minute deduplication, weekly-window detection, failure retention, version fallback and Native Messaging. Run the checks above. Reload the extension in Edge after updating.
-
-## Troubleshooting
-
-| Symptom | Action |
-| --- | --- |
-| Cannot connect to the native host | Rerun `node native/install.mjs` in this checkout and reload the extension. The installer registers the host for macOS Edge. |
-| The previous interface or icon is still visible | Reload the extension in `edge://extensions`, then reopen the popup. |
-| Synchronization fails | Check network access and the availability of Node/npm/npx; use the CLI sync command above for diagnosis. The local ledger and previous merged report remain available. |
-| Costs are unknown or totals seem incomplete | Check the affected models and ccusage pricing support. Unknown costs are not zero-cost usage. |
-| The quota chart is empty | Log in to a compatible local Codex installation, then refresh. Dates before the first capture cannot be reconstructed. |
-| No usage appears | Confirm that local Codex logs contain usage events supported by ccusage. Cloud-only or missing logs cannot be reconstructed by the extension. |
-
-## Uninstall
-
-Remove the extension from Edge and delete its native-host registration:
-
-```text
-~/Library/Application Support/Microsoft Edge/NativeMessagingHosts/com.codex.usage.json
-```
-
-Optionally delete `~/.codex-usage-edge/` to remove the history ledger, quota snapshots, cached state, and launcher. Codex logs are not changed.
-
-## References
-
-- [ccusage Codex data source](https://ccusage.com/guide/codex/)
-- [ccusage JSON output](https://ccusage.com/guide/json-output)
-- [Edge Native Messaging](https://learn.microsoft.com/en-us/microsoft-edge/extensions/developer-guide/native-messaging)
+This project is released under GNU Affero General Public License v3.0 or later. `vendor/codex_usage` remains an independent Git submodule with its original copyright, branding, and AGPL-3.0-or-later license. Network users can access the corresponding upstream source through the source link in the full dashboard.

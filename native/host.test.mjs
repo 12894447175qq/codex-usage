@@ -1,62 +1,77 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+
 const exec = promisify(execFile);
 const host = fileURLToPath(new URL('./host.mjs', import.meta.url));
 
-test('新版校验失败回退、每天检查一次、完全失败保留缓存、协议分帧', async () => {
+function message(env, body) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [host], { env });
+    const chunks = [];
+    child.stdout.on('data', chunk => chunks.push(chunk));
+    child.on('error', reject);
+    child.on('close', code => code ? reject(new Error(`host ${code}`)) : resolve(Buffer.concat(chunks)));
+    const payload = Buffer.from(JSON.stringify(body));
+    const header = Buffer.alloc(4);
+    header.writeUInt32LE(payload.length);
+    child.stdin.write(header.subarray(0, 2));
+    child.stdin.write(header.subarray(2));
+    child.stdin.write(payload);
+  });
+}
+
+test('使用 capisoft API 同步、保留缓存并支持打开完整面板', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'codex-usage-test-'));
-  const env = { ...process.env, CODEX_USAGE_STATE_DIR: join(dir, 'state'), PATH: `${dir}:${process.env.PATH}`, TEST_DIR: dir };
-  env.CODEX_USAGE_CODEX_BIN = join(dir, 'codex');
-  const raw = { daily: [{ period: '2026-09-09', agents: [{ agent: 'codex', inputTokens: 10, cacheReadTokens: 20, cacheCreationTokens: 0, outputTokens: 5, totalTokens: 35, totalCost: .1, modelBreakdowns: [{ modelName: 'model', inputTokens: 10, cacheReadTokens: 20, cacheCreationTokens: 0, outputTokens: 5, cost: .1 }] }] }] };
+  const usage = {
+    apiVersion: 1,
+    analyzerVersion: 10,
+    generatedAt: '2026-09-14T01:05:00.000Z',
+    sessions: [{ calls: [{ timestamp: '2026-09-14T01:00:00.000Z', model: 'gpt-5.3-codex', serviceTier: 'standard', usage: { inputTokens: 10, cachedInputTokens: 2, outputTokens: 5, totalTokens: 15 } }] }],
+    fiveHourQuota: { usedPercent: 12, observedAt: '2026-09-14T01:05:00.000Z', resetsAt: '2026-09-14T06:00:00.000Z' },
+    weeklyQuota: { usedPercent: 7, observedAt: '2026-09-14T01:05:00.000Z', resetsAt: '2026-09-21T01:05:00.000Z' },
+    weeklyQuotaHistory: [],
+  };
+  const server = createServer((request, response) => {
+    response.setHeader('content-type', 'application/json');
+    if (request.url === '/api/capabilities') response.end(JSON.stringify({ apiVersion: 1, runtime: 'local', sources: ['local'], defaultSource: 'local' }));
+    else if (request.url.startsWith('/api/usage')) response.end(JSON.stringify(usage));
+    else { response.statusCode = 404; response.end('{}'); }
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  const env = { ...process.env, CODEX_USAGE_STATE_DIR: join(dir, 'state'), CODEX_USAGE_DASHBOARD_URL: url };
   try {
-    await writeFile(env.CODEX_USAGE_CODEX_BIN, `#!${process.execPath}\nrequire('readline').createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);if(m.id===1)console.log(JSON.stringify({id:1,result:{}}));if(m.id===2)console.log(JSON.stringify({id:2,result:{rateLimits:{primary:{usedPercent:7,windowDurationMins:10080,resetsAt:1900000000}}}}));});`, { mode: 0o700 });
-    await writeFile(join(dir, 'raw.json'), JSON.stringify(raw));
-    await writeFile(join(dir, 'npm'), `#!${process.execPath}\nconst fs=require('fs');fs.appendFileSync(process.env.TEST_DIR+'/checks','x');console.log(JSON.stringify('2.0.0'));`, { mode: 0o700 });
-    await writeFile(join(dir, 'npx'), `#!${process.execPath}\nconst fs=require('fs');fs.appendFileSync(process.env.TEST_DIR+'/npx-args',JSON.stringify(process.argv.slice(2))+'\\n');if(process.env.TEST_FAIL)process.exit(1);console.log(process.argv.includes('ccusage@2.0.0')?'{}':fs.readFileSync(process.env.TEST_DIR+'/raw.json','utf8'));`, { mode: 0o700 });
-    const { mkdir } = await import('node:fs/promises'); await mkdir(env.CODEX_USAGE_STATE_DIR);
-    await writeFile(join(env.CODEX_USAGE_STATE_DIR, 'state.json'), JSON.stringify({ active: '1.0.0' }));
-    const run = async extra => {
-      try { return JSON.parse((await exec(process.execPath, [host, '--sync'], { env: { ...env, ...extra } })).stdout); }
-      catch (e) { return JSON.parse(e.stdout); }
-    };
-    const first = await run(); assert.equal(first.ok, true); assert.equal(first.report.version, '1.0.0'); assert.match(first.report.warnings[0], /回退/);
-    await run(); assert.equal(await readFile(join(dir, 'checks'), 'utf8'), 'x');
-    const calls = (await readFile(join(dir, 'npx-args'), 'utf8')).trim().split('\n').map(JSON.parse);
-    assert.ok(calls.some(args => args.includes('--since') && args.includes('--until')), '已有历史后只查询今天');
-    const history = JSON.parse(await readFile(join(env.CODEX_USAGE_STATE_DIR, 'history.json'), 'utf8'));
-    assert.equal(history.days.length, 1);
-    const recordQuota = await new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, [host], { env }); const chunks = [];
-      child.stdout.on('data', chunk => chunks.push(chunk)); child.on('error', reject);
-      child.on('close', code => code ? reject(new Error(`host ${code}`)) : resolve(Buffer.concat(chunks)));
-      const body = Buffer.from(JSON.stringify({ type: 'recordQuota', remainingPercent: 95 })); const header = Buffer.alloc(4); header.writeUInt32LE(body.length);
-      child.stdin.write(Buffer.concat([header, body]));
-    });
-    const quotaResponse = JSON.parse(recordQuota.subarray(4));
-    assert.equal(quotaResponse.ok, true); assert.equal(quotaResponse.report.quota.weekly.find(s => s.source === 'manual').remainingPercent, 95);
-    const before = await readFile(join(env.CODEX_USAGE_STATE_DIR, 'report.json'), 'utf8');
-    const failed = await run({ TEST_FAIL: '1' }); assert.equal(failed.ok, false); assert.equal(failed.report.stale, true);
-    assert.ok(failed.report.quota.weekly.some(s => s.source === 'codex' && s.remainingPercent === 93), 'Token 失败仍保留自动额度');
-    assert.equal(await readFile(join(env.CODEX_USAGE_STATE_DIR, 'report.json'), 'utf8'), before);
-    const quotaBefore = JSON.parse(await readFile(join(env.CODEX_USAGE_STATE_DIR, 'quota.json'), 'utf8')).snapshots;
-    const quotaFailed = await run({ CODEX_USAGE_CODEX_BIN: '/nonexistent/codex' });
-    assert.equal(quotaFailed.ok, true, '额度失败不阻塞 Token');
-    assert.match(quotaFailed.report.quota.error, /无法启动/);
-    assert.deepEqual(quotaFailed.report.quota.weekly, quotaBefore);
-    const result = await new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, [host], { env }); const chunks = [];
-      child.stdout.on('data', chunk => chunks.push(chunk)); child.on('error', reject);
-      child.on('close', code => code ? reject(new Error(`host ${code}`)) : resolve(Buffer.concat(chunks)));
-      const body = Buffer.from(JSON.stringify({ type: 'cache' })); const header = Buffer.alloc(4); header.writeUInt32LE(body.length);
-      child.stdin.write(header.subarray(0, 2)); child.stdin.write(header.subarray(2)); child.stdin.write(body);
-    });
-    assert.equal(result.readUInt32LE(0), result.length - 4);
-    assert.equal(JSON.parse(result.subarray(4)).report.version, '1.0.0');
-  } finally { await rm(dir, { recursive: true, force: true }); }
+    const first = JSON.parse((await exec(process.execPath, [host, '--sync'], { env })).stdout);
+    assert.equal(first.ok, true);
+    assert.equal(first.report.days[0].models[0].totalTokens, 15);
+    assert.equal(first.report.quota.weekly[0].remainingPercent, 93);
+    assert.equal(first.report.quota.fiveHour[0].remainingPercent, 88);
+    assert.equal(JSON.parse(await readFile(join(env.CODEX_USAGE_STATE_DIR, 'history.json'), 'utf8')).days.length, 1);
+
+    const dashboardFrame = await message(env, { type: 'dashboard' });
+    assert.equal(dashboardFrame.readUInt32LE(0), dashboardFrame.length - 4);
+    assert.equal(JSON.parse(dashboardFrame.subarray(4)).url, url);
+
+    const cacheFrame = await message(env, { type: 'cache' });
+    assert.equal(cacheFrame.readUInt32LE(0), cacheFrame.length - 4);
+    assert.equal(JSON.parse(cacheFrame.subarray(4)).report.version, 'external');
+
+    await new Promise(resolve => server.close(resolve));
+    let failed;
+    try { failed = JSON.parse((await exec(process.execPath, [host, '--sync'], { env })).stdout); }
+    catch (error) { failed = JSON.parse(error.stdout); }
+    assert.equal(failed.ok, false);
+    assert.equal(failed.report.stale, true);
+    assert.equal(failed.report.days[0].models[0].totalTokens, 15);
+  } finally {
+    if (server.listening) await new Promise(resolve => server.close(resolve));
+    await rm(dir, { recursive: true, force: true });
+  }
 });

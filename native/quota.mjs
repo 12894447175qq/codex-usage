@@ -32,7 +32,7 @@ export function readQuota({ bin = process.env.CODEX_USAGE_CODEX_BIN || (existsSy
         } else finish(null, message.result);
       }
     });
-    send({ id: 1, method: 'initialize', params: { clientInfo: { name: 'codex_usage_edge', version: '0.4.0' }, capabilities: null } });
+    send({ id: 1, method: 'initialize', params: { clientInfo: { name: 'codex_usage_edge', version: '0.5.0' }, capabilities: null } });
   });
 }
 

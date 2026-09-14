@@ -17,13 +17,17 @@ function useReport(value) {
   $('model').replaceChildren(new Option('全部模型', 'all'), ...names.map(n => new Option(n, n)));
   if (names.includes(selected)) $('model').value = selected;
   const bucket = $('quota-bucket').value;
-  const buckets = new Map((report.quota?.weekly ?? []).map(s => [s.limitId ?? 'codex', s.limitName ?? 'Codex（历史手工记录）']));
-  $('quota-bucket').replaceChildren(...[...buckets].sort(([a], [b]) => a === 'codex' ? -1 : b === 'codex' ? 1 : a.localeCompare(b)).map(([id, name]) => new Option(name, id)));
+  const buckets = new Map([
+    ...(report.quota?.weekly ?? []).map(s => [`weekly:${s.limitId ?? 'weekly'}`, s.limitName ?? '每周额度']),
+    ...(report.quota?.fiveHour ?? []).map(s => [`five-hour:${s.limitId ?? 'five-hour'}`, s.limitName ?? '5 小时额度']),
+  ]);
+  if (!buckets.size) buckets.set('weekly:weekly', '每周额度');
+  $('quota-bucket').replaceChildren(...[...buckets].map(([id, name]) => new Option(name, id)));
   if (buckets.has(bucket)) $('quota-bucket').value = bucket;
   render();
   const synced = new Date(report.syncedAt);
   $('meta').textContent = synced.toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
-  $('meta').title = `最后同步：${synced.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })} · ccusage ${report.version} · 本地保存 ${report.historyDays ?? report.days.length} 天 · ${report.pricingSource}`;
+  $('meta').title = `最后同步：${synced.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })} · capisoft ${report.version} · 本地保存 ${report.historyDays ?? report.days.length} 天 · ${report.pricingSource}`;
 }
 function dates() {
   const range = $('range').value;
@@ -93,7 +97,7 @@ function chart(id, days, names, metric) {
   });
   container.append(svg);
 }
-function quotaChart(id, snapshots, from, to) {
+function quotaChart(id, snapshots, from, to, windowName) {
   const container = $(id); container.replaceChildren();
   $('tooltip').hidden = true;
   $('quota-period').textContent = from === to ? `${from} · 按分钟采集` : `${from.slice(5)} — ${to.slice(5)} · 每日最后一次`;
@@ -101,12 +105,13 @@ function quotaChart(id, snapshots, from, to) {
   if (!snapshots.length) { const empty = node('div', '所选范围暂无额度快照，点击刷新获取当前额度'); empty.className = 'empty'; container.append(empty); $('quota-latest').textContent = '—'; return; }
   const latest = snapshots.at(-1);
   const stamp = new Date(latest.capturedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
-  $('quota-state').textContent += ` 最后采集 ${stamp}${latest.source === 'manual' ? '（手工）' : ''}${latest.resetsAt ? ' · 重置 ' + new Date(latest.resetsAt * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : ''}`;
+  const resetAt = latest.resetsAt ? new Date(typeof latest.resetsAt === 'number' ? latest.resetsAt * 1000 : latest.resetsAt) : null;
+  $('quota-state').textContent += ` 最后采集 ${stamp}${latest.source === 'manual' ? '（手工）' : ''}${resetAt && Number.isFinite(resetAt.getTime()) ? ' · 重置 ' + resetAt.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : ''}`;
   if (from !== to) snapshots = [...new Map(snapshots.map(s => [s.date, s])).values()];
   const width = Math.max(340, container.clientWidth);
   const height = 105, left = 42, right = 12, top = 18, graphWidth = width - left - right;
   const span = Math.max(1, (Date.parse(to) - Date.parse(from)) / 86400000);
-  const svg = svgNode('svg', { width, height: 155, viewBox: `0 0 ${width} 155`, role: 'img', 'aria-label': '每日周额度剩余百分比折线图' });
+  const svg = svgNode('svg', { width, height: 155, viewBox: `0 0 ${width} 155`, role: 'img', 'aria-label': `${windowName}剩余百分比折线图` });
   for (let i = 0; i <= 4; i++) {
     const value = 100 - i * 25;
     const y = top + height * i / 4;
@@ -126,7 +131,7 @@ function quotaChart(id, snapshots, from, to) {
   svg.append(svgNode('path', { d: path }));
   snapshots.forEach((snapshot, i) => {
     const p = points[i];
-    const label = `${snapshot.date} · 周剩余 ${snapshot.remainingPercent}%\n记录于 ${new Date(snapshot.capturedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`;
+    const label = `${snapshot.date} · ${windowName}剩余 ${snapshot.remainingPercent}%\n记录于 ${new Date(snapshot.capturedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`;
     const circle = svgNode('circle', { cx: p.x, cy: p.y, r: 4, tabindex: 0, 'aria-label': label });
     circle.append(svgNode('title', {}, label));
     const showTip = (x, y) => {
@@ -142,6 +147,54 @@ function quotaChart(id, snapshots, from, to) {
   });
   $('quota-latest').textContent = `${latest.remainingPercent}%`;
   container.append(svg);
+}
+
+function heatmapChart(from, to, days) {
+  const container = $('heatmap-chart');
+  container.replaceChildren();
+  $('tooltip').hidden = true;
+  const selectedModel = $('model').value;
+  const hourly = from === to && report.heatmap?.date === from;
+  const values = hourly
+    ? (report.heatmap.hours ?? []).map(bucket => {
+      const models = (bucket.models ?? []).filter(model => selectedModel === 'all' || model.model === selectedModel);
+      return { label: `${String(bucket.hour).padStart(2, '0')}:00`, totalTokens: models.reduce((sum, model) => sum + model.totalTokens, 0), calls: models.reduce((sum, model) => sum + model.calls, 0) };
+    })
+    : days.map(day => ({ label: day.date, totalTokens: day.models.reduce((sum, model) => sum + model.totalTokens, 0), calls: day.models.reduce((sum, model) => sum + (model.calls ?? 0), 0) }));
+  const peak = Math.max(0, ...values.map(value => value.totalTokens));
+  const grid = node('div');
+  grid.className = 'heatmap-grid';
+  const columns = hourly ? 12 : values.length <= 7 ? Math.max(1, values.length) : values.length <= 31 ? 10 : Math.min(26, Math.ceil(values.length / 4));
+  grid.style.setProperty('--heat-columns', columns);
+  for (const value of values) {
+    const cell = node('button');
+    const level = value.totalTokens === 0 || peak === 0 ? 0 : Math.max(1, Math.min(4, Math.ceil(value.totalTokens / peak * 4)));
+    const label = `${value.label}\nToken ${fmt(value.totalTokens)} · ${value.calls} 次模型调用`;
+    cell.type = 'button';
+    cell.className = 'heatmap-cell';
+    cell.dataset.level = level;
+    cell.setAttribute('aria-label', label);
+    cell.title = label;
+    const showTip = event => {
+      const tip = $('tooltip'); tip.textContent = label; tip.hidden = false;
+      const box = event?.currentTarget?.getBoundingClientRect() ?? cell.getBoundingClientRect();
+      const x = event?.clientX || box.right, y = event?.clientY || box.top;
+      tip.style.left = Math.max(8, Math.min(x + 12, window.innerWidth - tip.offsetWidth - 8)) + 'px';
+      tip.style.top = Math.max(8, Math.min(y + 12, window.innerHeight - tip.offsetHeight - 8)) + 'px';
+    };
+    cell.addEventListener('mousemove', showTip);
+    cell.addEventListener('focus', showTip);
+    for (const event of ['mouseleave', 'blur']) cell.addEventListener(event, () => { $('tooltip').hidden = true; });
+    grid.append(cell);
+  }
+  const legend = node('div');
+  legend.className = 'heatmap-legend';
+  legend.append(node('span', '少'));
+  for (let level = 0; level <= 4; level++) { const swatch = node('i'); swatch.dataset.level = level; legend.append(swatch); }
+  legend.append(node('span', '多'));
+  const caption = node('div', hourly ? `${from} · 每小时 Token 活跃度` : `${from.slice(5)} — ${to.slice(5)} · 每日 Token 活跃度`);
+  caption.className = 'heatmap-note';
+  container.append(grid, legend, caption);
 }
 function render() {
   $('custom-dates').hidden = $('range').value !== 'custom';
@@ -171,53 +224,68 @@ function render() {
   $('chart-period').textContent = from === to ? `${from} · 按模型` : `${from.slice(5)} — ${to.slice(5)} · 按天`;
   $('legend').replaceChildren(...names.map(name => { const item = node('span'); const dot = node('i'); dot.className = 'dot'; dot.style.background = colors.get(name); item.append(dot, document.createTextNode(name)); return item; }));
   const quota = activeMetric === 'quota';
-  $('usage-caption').hidden = quota;
-  $('layout').parentElement.hidden = quota;
-  $('legend').hidden = quota;
-  $('model-details').hidden = quota;
+  const heatmap = activeMetric === 'heatmap';
+  $('usage-caption').hidden = quota || heatmap;
+  $('layout').parentElement.hidden = quota || heatmap;
+  $('legend').hidden = quota || heatmap;
+  $('model-details').hidden = quota || heatmap;
   if (quota) {
-    const snapshots = (report.quota?.weekly ?? []).filter(snapshot => (snapshot.limitId ?? 'codex') === $('quota-bucket').value && snapshot.date >= from && snapshot.date <= to).sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
-    quotaChart('quota-chart', snapshots, from, to);
+    const [window, limitId] = $('quota-bucket').value.split(':');
+    const source = window === 'five-hour' ? report.quota?.fiveHour : report.quota?.weekly;
+    const snapshots = (source ?? []).filter(snapshot => (snapshot.limitId ?? window) === limitId && snapshot.date >= from && snapshot.date <= to).sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
+    quotaChart('quota-chart', snapshots, from, to, window === 'five-hour' ? '5 小时额度' : '每周额度');
+  } else if (heatmap) {
+    heatmapChart(from, to, days);
   } else {
     chart(activeMetric === 'totalTokens' ? 'token-chart' : 'cost-chart', days, names, activeMetric);
   }
   $('details').replaceChildren(...rows.reverse().map(m => { const tr = node('tr'); tr.append(...[m.date, m.model, fmt(m.inputTokens), fmt(m.cacheReadTokens), fmt(m.cacheCreationTokens), fmt(m.outputTokens), fmt(m.totalTokens), m.costUSD === null ? '未知' : usd(m.costUSD)].map(v => node('td', v))); return tr; }));
 }
 async function refresh(force = false) {
-  if (busy) return; busy = true; $('refresh').disabled = $('update').disabled = true;
-  status(force ? '正在检查新版并校验数据…' : '正在读取本机用量，首次运行可能需要下载 ccusage…');
+  if (busy) return; busy = true; $('refresh').disabled = $('open-dashboard').disabled = true;
+  status(force ? '正在强制扫描 Codex 日志…' : '正在读取本机 Codex 日志…');
   try {
     const result = await request('sync', force);
     if (result.report) useReport(result.report);
     if (!result.ok) status(`同步失败，${report ? '正在显示上次成功结果' : '尚无可用数据'}：${result.error}`, true);
     else status(['已同步', ...(result.report.warnings ?? [])].join('\n'), result.report.warnings?.length > 0);
   } catch (e) { status(`无法连接本地采集程序。请按 README 安装后重试。${report ? ' 当前保留上次成功结果。' : ''}\n${e.message}`, true); }
-  finally { busy = false; $('refresh').disabled = $('update').disabled = false; }
+  finally { busy = false; $('refresh').disabled = $('open-dashboard').disabled = false; }
 }
-$('refresh').onclick = () => refresh(); $('update').onclick = () => refresh(true);
+$('refresh').onclick = () => refresh(true);
+$('open-dashboard').onclick = async () => {
+  $('open-dashboard').disabled = true;
+  status('正在打开完整分析面板…');
+  try {
+    const result = await request('dashboard');
+    status(result?.ok ? '完整分析面板已在新标签页打开' : `无法打开完整分析面板：${result?.error || '未知错误'}`, !result?.ok);
+  } catch (error) { status(`无法打开完整分析面板：${error.message}`, true); }
+  finally { $('open-dashboard').disabled = false; }
+};
 $('quota-bucket').onchange = render;
 function selectMetric(metric) {
   activeMetric = metric;
-  const panels = { totalTokens: 'token-panel', costUSD: 'cost-panel', quota: 'quota-panel' };
+  const panels = { totalTokens: 'token-panel', costUSD: 'cost-panel', heatmap: 'heatmap-panel', quota: 'quota-panel' };
   for (const [value, panel] of Object.entries(panels)) {
     const selected = value === metric;
     $(panel).hidden = !selected;
-    const tab = value === 'totalTokens' ? 'tab-tokens' : value === 'costUSD' ? 'tab-cost' : 'tab-quota';
+    const tab = value === 'totalTokens' ? 'tab-tokens' : value === 'costUSD' ? 'tab-cost' : value === 'heatmap' ? 'tab-heatmap' : 'tab-quota';
     $(tab).setAttribute('aria-selected', String(selected)); $(tab).tabIndex = selected ? 0 : -1;
   }
   render();
 }
 $('tab-tokens').onclick = () => selectMetric('totalTokens');
 $('tab-cost').onclick = () => selectMetric('costUSD');
+$('tab-heatmap').onclick = () => selectMetric('heatmap');
 $('tab-quota').onclick = () => selectMetric('quota');
-for (const id of ['tab-tokens', 'tab-cost', 'tab-quota']) $(id).onkeydown = e => {
+for (const id of ['tab-tokens', 'tab-cost', 'tab-heatmap', 'tab-quota']) $(id).onkeydown = e => {
   if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
     e.preventDefault();
-    const metrics = ['totalTokens', 'costUSD', 'quota'];
+    const metrics = ['totalTokens', 'costUSD', 'heatmap', 'quota'];
     const index = metrics.indexOf(activeMetric);
     const next = e.key === 'Home' ? 0 : e.key === 'End' ? metrics.length - 1 : (index + (e.key === 'ArrowRight' ? 1 : -1) + metrics.length) % metrics.length;
     const metric = metrics[next];
-    selectMetric(metric); $(metric === 'totalTokens' ? 'tab-tokens' : metric === 'costUSD' ? 'tab-cost' : 'tab-quota').focus();
+    selectMetric(metric); $(metric === 'totalTokens' ? 'tab-tokens' : metric === 'costUSD' ? 'tab-cost' : metric === 'heatmap' ? 'tab-heatmap' : 'tab-quota').focus();
   }
 };
 document.addEventListener('scroll', () => { $('tooltip').hidden = true; }, true);

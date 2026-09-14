@@ -1,11 +1,23 @@
-import { readFile, writeFile, mkdir, chmod } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { readFile, writeFile, mkdir, chmod, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 if (process.platform !== 'darwin') throw new Error('当前安装脚本适用于 macOS Edge；其他系统需要单独注册 Native Messaging 主机');
 const here = dirname(fileURLToPath(import.meta.url));
+const projectRoot = resolve(here, '..');
+const upstreamRoot = join(projectRoot, 'vendor/codex_usage');
+const exec = promisify(execFile);
+const exists = async path => { try { return (await stat(path)).isFile(); } catch { return false; } };
+
+// 子模块保留 capisoft 的完整功能和许可证，安装时生成其本地 Web 资源。
+if (!await exists(join(upstreamRoot, 'package.json'))) {
+  await exec('git', ['submodule', 'update', '--init', '--depth', '1', 'vendor/codex_usage'], { cwd: projectRoot, timeout: 120_000 });
+}
+await exec(process.execPath, [join(upstreamRoot, 'scripts/build-dashboard-ui.mjs')], { cwd: upstreamRoot, timeout: 60_000 });
 const manifest = JSON.parse(await readFile(resolve(here, '../extension/manifest.json'), 'utf8'));
 const id = [...createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest('hex').slice(0, 32)].map(c => String.fromCharCode(97 + parseInt(c, 16))).join('');
 const stateDir = join(homedir(), '.codex-usage-edge');

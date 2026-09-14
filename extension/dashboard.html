@@ -11,7 +11,7 @@
   <header>
     <div class="brand"><img src="icons/icon.svg" width="32" height="32" alt=""><div><h1>Codex <span>Usage</span></h1><p>你的每日模型用量</p></div></div>
     <div class="actions">
-      <button id="update" class="icon-button" title="检查 ccusage 更新" aria-label="检查 ccusage 更新"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m-4 4 4-4 4 4M5 15v5h14v-5"/></svg></button>
+      <button id="open-dashboard" class="icon-button" title="打开完整分析面板" aria-label="打开完整分析面板"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h7v6H4zM13 5h7v4h-7zM4 13h7v6H4zM13 11h7v8h-7z"/></svg></button>
       <button id="refresh" class="refresh-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.5-1L20 9M4 15l2.4 3A7 7 0 0 0 18 17"/></svg>刷新</button>
     </div>
   </header>
@@ -25,12 +25,13 @@
     <article><span>估算费用 <small>USD</small></span><strong id="cost">—</strong></article>
   </section>
   <section class="chart-panel">
-    <div class="chart-toolbar"><div class="chart-tabs" role="tablist" aria-label="统计指标"><button id="tab-tokens" role="tab" aria-selected="true" aria-controls="token-panel" tabindex="0">Token</button><button id="tab-cost" role="tab" aria-selected="false" aria-controls="cost-panel" tabindex="-1">费用</button><button id="tab-quota" role="tab" aria-selected="false" aria-controls="quota-panel" tabindex="-1">额度</button></div><label class="layout-field"><span class="sr-only">柱状图布局</span><select id="layout"><option value="stacked">堆叠</option><option value="grouped">分组</option></select></label></div>
+    <div class="chart-toolbar"><div class="chart-tabs" role="tablist" aria-label="统计指标"><button id="tab-tokens" role="tab" aria-selected="true" aria-controls="token-panel" tabindex="0">Token</button><button id="tab-cost" role="tab" aria-selected="false" aria-controls="cost-panel" tabindex="-1">费用</button><button id="tab-heatmap" role="tab" aria-selected="false" aria-controls="heatmap-panel" tabindex="-1">热力</button><button id="tab-quota" role="tab" aria-selected="false" aria-controls="quota-panel" tabindex="-1">额度</button></div><label class="layout-field"><span class="sr-only">柱状图布局</span><select id="layout"><option value="stacked">堆叠</option><option value="grouped">分组</option></select></label></div>
     <div id="usage-caption" class="chart-caption"><span id="chart-period">今天</span><span><b id="models">—</b> 个模型</span></div>
     <div id="token-panel" role="tabpanel" aria-labelledby="tab-tokens"><div id="token-chart" class="chart"></div></div>
     <div id="cost-panel" role="tabpanel" aria-labelledby="tab-cost" hidden><div id="cost-chart" class="chart"></div></div>
+    <div id="heatmap-panel" role="tabpanel" aria-labelledby="tab-heatmap" hidden><div id="heatmap-chart" class="heatmap"></div></div>
     <div id="quota-panel" role="tabpanel" aria-labelledby="tab-quota" hidden>
-      <div class="quota-editor"><label class="quota-field"><span>周额度类别</span><select id="quota-bucket"><option value="codex">Codex</option></select></label></div>
+      <div class="quota-editor"><label class="quota-field"><span>额度窗口</span><select id="quota-bucket"><option value="weekly:weekly">每周额度</option></select></label></div>
       <p id="quota-state" class="quota-help">打开或刷新时自动采集，同一分钟保留最新值。</p>
       <div class="quota-caption"><span id="quota-period">按天记录</span><span>最新 <b id="quota-latest">—</b></span></div>
       <div id="quota-chart" class="chart"></div>

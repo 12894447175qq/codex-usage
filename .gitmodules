@@ -1,0 +1,3 @@
+[submodule "vendor/codex_usage"]
+	path = vendor/codex_usage
+	url = https://github.com/capisoft-lib/codex_usage.git
