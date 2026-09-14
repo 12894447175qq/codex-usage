@@ -4,10 +4,13 @@ import { mkdir, readFile, writeFile, rename, open, unlink } from 'node:fs/promis
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { normalize } from './normalize.mjs';
+import { createQuotaSnapshot, mergeDays, migrateReport, upsertQuotaSnapshot } from './history.mjs';
 
 const exec = promisify(execFile);
 const root = process.env.CODEX_USAGE_STATE_DIR || join(homedir(), '.codex-usage-edge');
 const cachePath = join(root, 'report.json');
+const historyPath = join(root, 'history.json');
+const quotaPath = join(root, 'quota.json');
 const statePath = join(root, 'state.json');
 const lockPath = join(root, 'sync.lock');
 const day = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -29,15 +32,58 @@ async function command(bin, args, timeout = 180000) {
     throw new Error(`${bin} 执行失败（${e.killed ? '超时' : e.code ?? '未知错误'}）`);
   }
 }
-async function collect(v) {
+async function collect(v, range = {}) {
   const config = join(root, 'ccusage.json');
   // 独立配置避免用户的其他 ccusage 日期筛选或隐藏费用设置影响报告。
   await save(config, {});
-  const { stdout } = await command('npx', ['--yes', `ccusage@${version(v)}`, 'daily', '--by-agent', '--json', '--timezone', 'Asia/Shanghai', '--no-offline', '--config', config]);
+  const args = ['--yes', `ccusage@${version(v)}`, 'daily', '--by-agent', '--json', '--timezone', 'Asia/Shanghai', '--no-offline', '--config', config];
+  if (range.since) args.push('--since', range.since);
+  if (range.until) args.push('--until', range.until);
+  const { stdout } = await command('npx', args);
   return { schemaVersion: 1, version: v, syncedAt: new Date().toISOString(), timezone: 'Asia/Shanghai', pricingSource: 'ccusage / LiteLLM（API 等价估算）', days: normalize(JSON.parse(stdout)) };
+}
+async function loadHistory() {
+  const stored = await load(historyPath);
+  if (stored) {
+    if (!Array.isArray(stored.days)) throw new Error('本地历史账本格式无效');
+    return { schemaVersion: 1, timezone: 'Asia/Shanghai', updatedAt: stored.updatedAt ?? null, days: stored.days };
+  }
+  // 升级旧版本：把已有报告迁移到独立账本，之后只更新今天的数据。
+  const migrated = migrateReport(await load(cachePath));
+  if (migrated.days.length) await save(historyPath, migrated);
+  return migrated;
+}
+async function loadQuota() {
+  const stored = await load(quotaPath);
+  if (!stored) return { schemaVersion: 1, snapshots: [] };
+  if (!Array.isArray(stored.snapshots)) throw new Error('本地额度快照格式无效');
+  return { schemaVersion: 1, snapshots: stored.snapshots };
+}
+function quotaView(quota) {
+  return { weekly: (quota?.snapshots ?? []).filter(snapshot => snapshot?.window === 'weekly') };
+}
+function cachedReport(history, quota, cached) {
+  if (cached) return { ...cached, quota: quotaView(quota), historyDays: history.days.length };
+  if (!history.days.length && !quota.snapshots.length) return null;
+  const sourceVersion = history.days.at(-1)?.sourceVersion ?? null;
+  return {
+    schemaVersion: 2,
+    version: sourceVersion,
+    syncedAt: history.updatedAt ?? new Date().toISOString(),
+    timezone: 'Asia/Shanghai',
+    pricingSource: 'ccusage / LiteLLM（API 等价估算）',
+    days: history.days,
+    warnings: ['当前显示本地历史账本，尚未完成今日同步'],
+    stale: true,
+    latestVersion: sourceVersion,
+    quota: quotaView(quota),
+    historyDays: history.days.length,
+  };
 }
 async function sync(force) {
   const state = await load(statePath) ?? {};
+  const history = await loadHistory();
+  const range = history.days.length ? { since: day(), until: day() } : {};
   let candidate = state.active;
   const warnings = [];
   if (force || state.checkedDay !== day()) {
@@ -53,20 +99,40 @@ async function sync(force) {
   if (state.updateError) warnings.push(state.updateError);
   if (!candidate) throw new Error('首次同步需要联网获取 ccusage，请检查网络后重试检查更新');
   let report;
-  try { report = await collect(candidate); }
+  try { report = await collect(candidate, range); }
   catch (e) {
     if (!state.active || candidate === state.active) throw e;
     warnings.push(`新版 ${candidate} 未通过运行或数据校验，已回退 ${state.active}：${e.message}`);
-    report = await collect(state.active);
+    report = await collect(state.active, range);
   }
   const previous = await load(cachePath);
-  if (previous?.days?.length && !report.days.length) throw new Error('本次未发现 Codex 记录，为避免空结果覆盖历史统计，保留上次结果');
-  const response = { ...report, warnings, stale: false, latestVersion: state.latest ?? report.version };
+  const mergedDays = mergeDays(history.days, report.days, report.version);
+  if (previous?.days?.length && !mergedDays.length) throw new Error('本次未发现 Codex 记录，为避免空结果覆盖历史统计，保留上次结果');
+  const nextHistory = { schemaVersion: 1, timezone: 'Asia/Shanghai', updatedAt: report.syncedAt, days: mergedDays };
+  await save(historyPath, nextHistory);
+  const quota = await loadQuota();
+  const response = { ...report, days: mergedDays, warnings, stale: false, latestVersion: state.latest ?? report.version, quota: quotaView(quota), historyDays: mergedDays.length };
   if (Buffer.byteLength(JSON.stringify(response)) > 900000) throw new Error('统计结果超出本机通信大小限制，保留上次结果');
   await save(cachePath, response);
   state.active = report.version;
   await save(statePath, state);
   return response;
+}
+async function recordQuota(request) {
+  const quota = await loadQuota();
+  const snapshot = createQuotaSnapshot({
+    date: request.date ?? day(),
+    capturedAt: request.capturedAt,
+    window: request.window ?? 'weekly',
+    remainingPercent: request.remainingPercent,
+  });
+  const nextQuota = upsertQuotaSnapshot(quota, snapshot);
+  await save(quotaPath, nextQuota);
+  const history = await loadHistory();
+  const cached = await load(cachePath);
+  const report = cachedReport(history, nextQuota, cached);
+  if (report) await save(cachePath, report);
+  return report;
 }
 async function withLock(fn) {
   let lock;
@@ -84,11 +150,22 @@ async function withLock(fn) {
 }
 async function handle(request) {
   await mkdir(root, { recursive: true, mode: 0o700 });
-  if (request.type === 'cache') return { ok: true, report: await load(cachePath) };
+  if (request.type === 'cache') {
+    const history = await loadHistory();
+    return { ok: true, report: cachedReport(history, await loadQuota(), await load(cachePath)) };
+  }
+  if (request.type === 'recordQuota') {
+    try { return { ok: true, report: await withLock(() => recordQuota(request)) }; }
+    catch (e) {
+      const history = await loadHistory();
+      return { ok: false, error: e.message, report: cachedReport(history, await loadQuota(), await load(cachePath)) };
+    }
+  }
   if (request.type !== 'sync') throw new Error('不支持的请求');
   try { return { ok: true, report: await withLock(() => sync(request.force === true)) }; }
   catch (e) {
-    const previous = await load(cachePath);
+    const history = await loadHistory();
+    const previous = cachedReport(history, await loadQuota(), await load(cachePath));
     return { ok: false, error: e.message, report: previous ? { ...previous, stale: true } : null };
   }
 }

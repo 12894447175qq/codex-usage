@@ -2,7 +2,7 @@ let syncing;
 
 // 同步由后台持有，关闭浮窗后仍可完成；再次打开复用进行中的请求。
 chrome.runtime.onMessage.addListener((request, sender, reply) => {
-  if (sender.id !== chrome.runtime.id || !['cache', 'sync'].includes(request?.type)) return;
+  if (sender.id !== chrome.runtime.id || !['cache', 'sync', 'recordQuota'].includes(request?.type)) return;
   let result;
   if (request.type === 'sync') {
     if (!syncing) {
@@ -11,6 +11,12 @@ chrome.runtime.onMessage.addListener((request, sender, reply) => {
       }).finally(() => { syncing = undefined; });
     }
     result = syncing;
+  } else if (request.type === 'recordQuota') {
+    result = chrome.runtime.sendNativeMessage('com.codex.usage', {
+      type: 'recordQuota',
+      window: request.window,
+      remainingPercent: request.remainingPercent,
+    });
   } else {
     result = chrome.runtime.sendNativeMessage('com.codex.usage', { type: 'cache' });
   }

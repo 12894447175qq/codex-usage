@@ -6,8 +6,8 @@ const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai'
 let report, colors = new Map(), busy = false, activeMetric = 'totalTokens';
 const node = (tag, text) => { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; return el; };
 function status(text, error = false) { $('status').textContent = text; $('status').classList.toggle('error', error); }
-async function request(type, force = false) {
-  return chrome.runtime.sendMessage({ type, force });
+async function request(type, force = false, payload = {}) {
+  return chrome.runtime.sendMessage({ type, force, ...payload });
 }
 function useReport(value) {
   report = value;
@@ -16,10 +16,12 @@ function useReport(value) {
   colors = new Map(names.map((name, i) => [name, palette[i % palette.length]]));
   $('model').replaceChildren(new Option('全部模型', 'all'), ...names.map(n => new Option(n, n)));
   if (names.includes(selected)) $('model').value = selected;
+  const latestQuota = [...(report.quota?.weekly ?? [])].sort((a, b) => a.date.localeCompare(b.date)).at(-1);
+  if (latestQuota) $('weekly-remaining').value = latestQuota.remainingPercent;
   render();
   const synced = new Date(report.syncedAt);
   $('meta').textContent = synced.toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
-  $('meta').title = `最后同步：${synced.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })} · ccusage ${report.version} · ${report.pricingSource}`;
+  $('meta').title = `最后同步：${synced.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })} · ccusage ${report.version} · 本地保存 ${report.historyDays ?? report.days.length} 天 · ${report.pricingSource}`;
 }
 function dates() {
   const range = $('range').value;
@@ -89,6 +91,51 @@ function chart(id, days, names, metric) {
   });
   container.append(svg);
 }
+function quotaChart(id, snapshots, from, to) {
+  const container = $(id); container.replaceChildren();
+  $('tooltip').hidden = true;
+  if (!snapshots.length) { const empty = node('div', '所选范围暂无额度快照，请先记录今天的剩余比例'); empty.className = 'empty'; container.append(empty); $('quota-latest').textContent = '—'; return; }
+  const width = Math.max(340, container.clientWidth, snapshots.length * 42);
+  const height = 105, left = 42, right = 12, top = 18, graphWidth = width - left - right;
+  const span = Math.max(1, (Date.parse(to) - Date.parse(from)) / 86400000);
+  const svg = svgNode('svg', { width, height: 155, viewBox: `0 0 ${width} 155`, role: 'img', 'aria-label': '每日周额度剩余百分比折线图' });
+  for (let i = 0; i <= 4; i++) {
+    const value = 100 - i * 25;
+    const y = top + height * i / 4;
+    svg.append(svgNode('line', { x1: left, x2: width - right, y1: y, y2: y, 'stroke-dasharray': i === 4 ? '0' : '3 3' }));
+    svg.append(svgNode('text', { x: left - 8, y: y + 4, 'text-anchor': 'end' }, `${value}%`));
+  }
+  const point = (snapshot, index) => ({
+    x: from === to ? left + graphWidth / 2 : left + graphWidth * (Date.parse(snapshot.date) - Date.parse(from)) / 86400000 / span,
+    y: top + height * (1 - Math.max(0, Math.min(100, snapshot.remainingPercent)) / 100),
+  });
+  const points = snapshots.map(point);
+  const path = points.map((p, i) => {
+    const contiguous = i > 0 && (Date.parse(snapshots[i].date) - Date.parse(snapshots[i - 1].date)) / 86400000 === 1;
+    return `${contiguous ? 'L' : 'M'} ${p.x} ${p.y}`;
+  }).join(' ');
+  svg.append(svgNode('path', { d: path }));
+  snapshots.forEach((snapshot, i) => {
+    const p = points[i];
+    const label = `${snapshot.date} · 周剩余 ${snapshot.remainingPercent}%\n记录于 ${new Date(snapshot.capturedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`;
+    const circle = svgNode('circle', { cx: p.x, cy: p.y, r: 4, tabindex: 0, 'aria-label': label });
+    circle.append(svgNode('title', {}, label));
+    const showTip = (x, y) => {
+      const tip = $('tooltip'); tip.textContent = label; tip.hidden = false;
+      tip.style.left = Math.max(8, Math.min(x + 12, window.innerWidth - tip.offsetWidth - 8)) + 'px';
+      tip.style.top = Math.max(8, Math.min(y + 12, window.innerHeight - tip.offsetHeight - 8)) + 'px';
+    };
+    circle.addEventListener('mousemove', event => showTip(event.clientX, event.clientY));
+    circle.addEventListener('focus', () => { const box = circle.getBoundingClientRect(); showTip(box.right, box.top); });
+    for (const event of ['mouseleave', 'blur']) circle.addEventListener(event, () => { $('tooltip').hidden = true; });
+    svg.append(circle);
+    if (i % Math.max(1, Math.ceil(snapshots.length / (width / 55))) === 0) svg.append(svgNode('text', { x: p.x, y: 146, 'text-anchor': 'middle' }, snapshot.date.slice(5)));
+  });
+  const latest = snapshots.at(-1);
+  $('quota-latest').textContent = `${latest.remainingPercent}%`;
+  $('quota-period').textContent = from === to ? `${from} · 周额度` : `${from.slice(5)} — ${to.slice(5)} · 周额度`;
+  container.append(svg);
+}
 function render() {
   $('custom-dates').hidden = $('range').value !== 'custom';
   if (!report) return;
@@ -116,11 +163,22 @@ function render() {
   $('models').textContent = names.length;
   $('chart-period').textContent = from === to ? `${from} · 按模型` : `${from.slice(5)} — ${to.slice(5)} · 按天`;
   $('legend').replaceChildren(...names.map(name => { const item = node('span'); const dot = node('i'); dot.className = 'dot'; dot.style.background = colors.get(name); item.append(dot, document.createTextNode(name)); return item; }));
-  chart(activeMetric === 'totalTokens' ? 'token-chart' : 'cost-chart', days, names, activeMetric);
+  const quota = activeMetric === 'quota';
+  $('usage-caption').hidden = quota;
+  $('layout').parentElement.hidden = quota;
+  $('legend').hidden = quota;
+  $('model-details').hidden = quota;
+  if (quota) {
+    const snapshots = (report.quota?.weekly ?? []).filter(snapshot => snapshot.date >= from && snapshot.date <= to).sort((a, b) => a.date.localeCompare(b.date));
+    quotaChart('quota-chart', snapshots, from, to);
+  } else {
+    chart(activeMetric === 'totalTokens' ? 'token-chart' : 'cost-chart', days, names, activeMetric);
+  }
   $('details').replaceChildren(...rows.reverse().map(m => { const tr = node('tr'); tr.append(...[m.date, m.model, fmt(m.inputTokens), fmt(m.cacheReadTokens), fmt(m.cacheCreationTokens), fmt(m.outputTokens), fmt(m.totalTokens), m.costUSD === null ? '未知' : usd(m.costUSD)].map(v => node('td', v))); return tr; }));
 }
 async function refresh(force = false) {
   if (busy) return; busy = true; $('refresh').disabled = $('update').disabled = true;
+  $('record-quota').disabled = true;
   status(force ? '正在检查新版并校验数据…' : '正在读取本机用量，首次运行可能需要下载 ccusage…');
   try {
     const result = await request('sync', force);
@@ -128,24 +186,45 @@ async function refresh(force = false) {
     if (!result.ok) status(`同步失败，${report ? '正在显示上次成功结果' : '尚无可用数据'}：${result.error}`, true);
     else status(['已同步', ...(result.report.warnings ?? [])].join('\n'), result.report.warnings?.length > 0);
   } catch (e) { status(`无法连接本地采集程序。请按 README 安装后重试。${report ? ' 当前保留上次成功结果。' : ''}\n${e.message}`, true); }
-  finally { busy = false; $('refresh').disabled = $('update').disabled = false; }
+  finally { busy = false; $('refresh').disabled = $('update').disabled = false; $('record-quota').disabled = false; }
 }
-$('refresh').onclick = () => refresh(); $('update').onclick = () => refresh(true);
+async function recordQuota() {
+  if (busy) return;
+  const remainingPercent = Number($('weekly-remaining').value);
+  if (!Number.isFinite(remainingPercent) || remainingPercent < 0 || remainingPercent > 100) return status('请输入 0 到 100 之间的周剩余百分比', true);
+  busy = true; $('refresh').disabled = $('update').disabled = $('record-quota').disabled = true;
+  status('正在保存今天的周额度快照…');
+  try {
+    const result = await request('recordQuota', false, { window: 'weekly', remainingPercent });
+    if (result.report) useReport(result.report);
+    if (!result.ok) status(`保存失败：${result.error}`, true);
+    else status(`已记录今天的周额度：${remainingPercent}%`);
+  } catch (e) { status(`无法保存额度快照：${e.message}`, true); }
+  finally { busy = false; $('refresh').disabled = $('update').disabled = $('record-quota').disabled = false; }
+}
+$('refresh').onclick = () => refresh(); $('update').onclick = () => refresh(true); $('record-quota').onclick = recordQuota;
 function selectMetric(metric) {
   activeMetric = metric;
-  const tokens = metric === 'totalTokens';
-  $('token-panel').hidden = !tokens; $('cost-panel').hidden = tokens;
-  for (const [id, selected] of [['tab-tokens', tokens], ['tab-cost', !tokens]]) {
-    $(id).setAttribute('aria-selected', String(selected)); $(id).tabIndex = selected ? 0 : -1;
+  const panels = { totalTokens: 'token-panel', costUSD: 'cost-panel', quota: 'quota-panel' };
+  for (const [value, panel] of Object.entries(panels)) {
+    const selected = value === metric;
+    $(panel).hidden = !selected;
+    const tab = value === 'totalTokens' ? 'tab-tokens' : value === 'costUSD' ? 'tab-cost' : 'tab-quota';
+    $(tab).setAttribute('aria-selected', String(selected)); $(tab).tabIndex = selected ? 0 : -1;
   }
   render();
 }
 $('tab-tokens').onclick = () => selectMetric('totalTokens');
 $('tab-cost').onclick = () => selectMetric('costUSD');
-for (const id of ['tab-tokens', 'tab-cost']) $(id).onkeydown = e => {
+$('tab-quota').onclick = () => selectMetric('quota');
+for (const id of ['tab-tokens', 'tab-cost', 'tab-quota']) $(id).onkeydown = e => {
   if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
-    e.preventDefault(); const metric = e.key === 'Home' ? 'totalTokens' : e.key === 'End' ? 'costUSD' : activeMetric === 'totalTokens' ? 'costUSD' : 'totalTokens';
-    selectMetric(metric); $(metric === 'totalTokens' ? 'tab-tokens' : 'tab-cost').focus();
+    e.preventDefault();
+    const metrics = ['totalTokens', 'costUSD', 'quota'];
+    const index = metrics.indexOf(activeMetric);
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? metrics.length - 1 : (index + (e.key === 'ArrowRight' ? 1 : -1) + metrics.length) % metrics.length;
+    const metric = metrics[next];
+    selectMetric(metric); $(metric === 'totalTokens' ? 'tab-tokens' : metric === 'costUSD' ? 'tab-cost' : 'tab-quota').focus();
   }
 };
 document.addEventListener('scroll', () => { $('tooltip').hidden = true; }, true);
