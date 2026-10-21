@@ -12,10 +12,13 @@ test('历史账本保留旧日期，并用新采集结果覆盖相同日期', ()
   assert.equal(merged[1].sourceVersion, '2.0.0');
 });
 test('旧报告可以迁移为本地历史账本', () => {
-  const history = migrateReport({ version: '3.0.0', syncedAt: '2026-09-09T10:00:00.000Z', days: [day('2026-09-09', 9)] });
+  const original = { ...day('2026-09-09', 9), models: [{ model: 'legacy', totalTokens: 9, calls: 1, costUSD: null, knownCostUSD: .1, costKnown: false, unknownCostCalls: 1 }] };
+  const history = migrateReport({ version: '3.0.0', syncedAt: '2026-09-09T10:00:00.000Z', days: [original] });
   assert.equal(history.schemaVersion, 1);
   assert.equal(history.timezone, 'Asia/Shanghai');
   assert.equal(history.days[0].sourceVersion, '3.0.0');
+  assert.deepEqual(history.days[0].models[0], { model: 'legacy', totalTokens: 9, calls: 1 });
+  assert.equal(original.models[0].knownCostUSD, .1);
 });
 
 test('额度快照按北京时间日期和窗口去重，并校验范围', () => {

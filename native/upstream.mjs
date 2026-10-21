@@ -4,14 +4,12 @@ import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { apiCostOfCalls, mergeApiPricing } from '../vendor/codex_usage/public/api-pricing.js';
 
 const exec = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
 const bundledRoot = resolve(here, '../vendor/codex_usage');
 const zone = 'Asia/Shanghai';
 const dayFormat = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' });
-const hourFormat = new Intl.DateTimeFormat('en-GB', { timeZone: zone, hour: '2-digit', hourCycle: 'h23' });
 
 const finite = value => Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0;
 const load = async path => { try { return JSON.parse(await readFile(path, 'utf8')); } catch (error) { if (error.code === 'ENOENT') return null; throw error; } };
@@ -47,7 +45,7 @@ function quotaSnapshots(quota, window, limitName) {
       date: dayFormat.format(new Date(capturedAt)),
       capturedAt: new Date(capturedAt).toISOString(),
       window,
-      limitId: window,
+      limitId: 'codex',
       limitName,
       remainingPercent: Math.max(0, Math.min(100, 100 - Number(point.usedPercent))),
       resetsAt: quota.resetsAt || quota.endsAt || null,
@@ -69,45 +67,28 @@ function dedupeSnapshots(values) {
 
 export function reportFromUsage(usage, { version = 'unknown', syncedAt = new Date().toISOString() } = {}) {
   if (!usage || usage.apiVersion !== 1 || !Array.isArray(usage.sessions)) throw new Error('capisoft 用量接口格式不兼容');
-  const pricing = mergeApiPricing();
   const days = new Map();
-  const today = dayFormat.format(new Date(syncedAt));
-  const hours = new Map(Array.from({ length: 24 }, (_, hour) => [String(hour).padStart(2, '0'), { hour, models: new Map() }]));
+  let skippedCalls = 0;
 
   for (const session of usage.sessions) {
     for (const call of Array.isArray(session.calls) ? session.calls : []) {
       const timestamp = new Date(call.timestamp);
-      if (!Number.isFinite(timestamp.getTime())) continue;
+      if (call.timestamp == null || !Number.isFinite(timestamp.getTime())) { skippedCalls += 1; continue; }
       const date = dayFormat.format(timestamp);
       const model = String(call.model || 'unknown');
       const tokens = usageOf(call);
-      const cost = apiCostOfCalls([call], pricing);
       const day = days.get(date) || { date, models: new Map() };
-      const current = day.models.get(model) || { model, inputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, outputTokens: 0, totalTokens: 0, costUSD: 0, costKnown: true, calls: 0 };
+      const current = day.models.get(model) || { model, inputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, outputTokens: 0, totalTokens: 0, calls: 0 };
       for (const key of ['inputTokens', 'cacheReadTokens', 'cacheCreationTokens', 'outputTokens', 'totalTokens']) current[key] += tokens[key];
       current.calls += 1;
-      if (cost.unratedCalls) current.costKnown = false;
-      else current.costUSD += cost.cost;
       day.models.set(model, current);
       days.set(date, day);
-
-      if (date === today) {
-        const hour = hourFormat.format(timestamp);
-        const bucket = hours.get(hour);
-        const value = bucket.models.get(model) || { model, totalTokens: 0, calls: 0 };
-        value.totalTokens += tokens.totalTokens;
-        value.calls += 1;
-        bucket.models.set(model, value);
-      }
     }
   }
 
   const normalizedDays = [...days.values()].sort((a, b) => a.date.localeCompare(b.date)).map(day => ({
     date: day.date,
-    models: [...day.models.values()].sort((a, b) => a.model.localeCompare(b.model)).map(model => ({
-      ...model,
-      costUSD: model.costKnown ? model.costUSD : null,
-    })),
+    models: [...day.models.values()].sort((a, b) => a.model.localeCompare(b.model)),
   }));
   const weekly = dedupeSnapshots([
     ...(usage.weeklyQuotaHistory || []).flatMap(quota => quotaSnapshots(quota, 'weekly', '每周额度')),
@@ -116,18 +97,13 @@ export function reportFromUsage(usage, { version = 'unknown', syncedAt = new Dat
   const fiveHour = dedupeSnapshots(quotaSnapshots(usage.fiveHourQuota, 'five-hour', '5 小时额度'));
 
   return {
-    schemaVersion: 3,
+    schemaVersion: 6,
     version,
     syncedAt,
     timezone: zone,
-    pricingSource: `capisoft codex_usage ${version} · 历史价格目录`,
     days: normalizedDays,
-    heatmap: {
-      date: today,
-      hours: [...hours.values()].map(bucket => ({ hour: bucket.hour, models: [...bucket.models.values()] })),
-    },
     quota: { weekly, fiveHour, error: null, checkedAt: usage.generatedAt || syncedAt },
-    upstream: { apiVersion: usage.apiVersion, analyzerVersion: usage.analyzerVersion, errorCount: usage.errorCount || 0 },
+    upstream: { apiVersion: usage.apiVersion, analyzerVersion: usage.analyzerVersion, errorCount: usage.errorCount || 0, skippedCalls },
   };
 }
 

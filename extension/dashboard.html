@@ -9,37 +9,38 @@
 <body>
 <main>
   <header>
-    <div class="brand"><img src="icons/icon.svg" width="32" height="32" alt=""><div><h1>Codex <span>Usage</span></h1><p>你的每日模型用量</p></div></div>
+    <div class="brand"><img src="icons/icon.svg" width="32" height="32" alt=""><div><h1>Codex <span>Usage</span></h1><p>本地用量与周额度</p></div></div>
     <div class="actions">
-      <button id="open-dashboard" class="icon-button" title="打开完整分析面板" aria-label="打开完整分析面板"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h7v6H4zM13 5h7v4h-7zM4 13h7v6H4zM13 11h7v8h-7z"/></svg></button>
-      <button id="refresh" class="refresh-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.5-1L20 9M4 15l2.4 3A7 7 0 0 0 18 17"/></svg>刷新</button>
+      <button id="open-floating" class="icon-button" title="打开可拖动、可调整大小的独立浮窗" aria-label="打开独立浮窗"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 4h7v7M20 4l-9 9M10 4H4v16h16v-6"/></svg><span class="action-label">浮窗</span></button>
+      <a id="open-radar" class="icon-button" href="https://codexradar.com/" target="_blank" rel="noopener noreferrer" title="在新标签页打开 Codex Radar" aria-label="打开 Codex Radar（新标签页）"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="m12 12 6-6M12 3v2M3 12h2M12 19v2M19 12h2"/></svg><span class="action-label">雷达</span></a>
+      <button id="open-dashboard" class="icon-button" title="打开完整分析面板" aria-label="打开完整分析面板"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h7v6H4zM13 5h7v4h-7zM4 13h7v6H4zM13 11h7v8h-7z"/></svg><span class="action-label">面板</span></button>
+      <button id="refresh" class="refresh-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.5-1L20 9M4 15l2.4 3A7 7 0 0 0 18 17"/></svg><span id="refresh-label">刷新</span></button>
     </div>
   </header>
-  <section class="filters" aria-label="筛选条件">
-    <label class="field"><span>时间范围</span><select id="range"><option value="1" selected>今天</option><option value="7">最近 7 天</option><option value="30">最近 30 天</option><option value="custom">自定义</option></select></label>
-    <label class="field model-field"><span>模型</span><select id="model"><option value="all">全部模型</option></select></label>
+  <p id="window-help" class="window-help" hidden>拖动窗口标题栏移动位置，拖动窗口边缘调整大小。</p>
+  <section id="usage-filters" class="filters" aria-label="筛选条件">
+    <div class="range-field"><span class="field-label">时间范围</span><div id="range-shortcuts" class="range-shortcuts" role="group" aria-label="时间范围">
+      <button type="button" data-range="1" aria-pressed="true">今天</button><button type="button" data-range="7" aria-pressed="false">7 天</button><button type="button" data-range="30" aria-pressed="false">30 天</button>
+    </div><select id="range" class="sr-only" tabindex="-1" aria-hidden="true"><option value="1" selected>今天</option><option value="7">最近 7 天</option><option value="30">最近 30 天</option></select></div>
+    <label class="field model-field"><span id="model-label">模型</span><select id="model"><option value="all">全部模型</option></select></label>
   </section>
-  <div id="custom-dates" class="custom-dates" hidden><label class="field"><span>开始日期</span><input type="date" id="from"></label><label class="field"><span>结束日期</span><input type="date" id="to"></label></div>
-  <section class="cards" aria-label="所选范围汇总">
-    <article><span>Token 用量 <small>亿</small></span><strong id="tokens">—</strong></article>
-    <article><span>估算费用 <small>USD</small></span><strong id="cost">—</strong></article>
+  <section id="usage-cards" class="cards" aria-label="所选范围汇总">
+    <article><span>Token 用量</span><strong id="tokens">—</strong></article>
   </section>
   <section class="chart-panel">
-    <div class="chart-toolbar"><div class="chart-tabs" role="tablist" aria-label="统计指标"><button id="tab-tokens" role="tab" aria-selected="true" aria-controls="token-panel" tabindex="0">Token</button><button id="tab-cost" role="tab" aria-selected="false" aria-controls="cost-panel" tabindex="-1">费用</button><button id="tab-heatmap" role="tab" aria-selected="false" aria-controls="heatmap-panel" tabindex="-1">热力</button><button id="tab-quota" role="tab" aria-selected="false" aria-controls="quota-panel" tabindex="-1">额度</button></div><label class="layout-field"><span class="sr-only">柱状图布局</span><select id="layout"><option value="stacked">堆叠</option><option value="grouped">分组</option></select></label></div>
+    <div class="chart-toolbar"><div class="chart-tabs" role="tablist" aria-label="统计指标"><button id="tab-tokens" role="tab" aria-selected="true" aria-controls="token-panel" tabindex="0">Token</button><button id="tab-quota" role="tab" aria-selected="false" aria-controls="quota-panel" tabindex="-1">额度</button></div><div id="token-tools" class="token-tools"><button id="axis-toggle" class="axis-toggle" type="button" hidden>展开刻度</button><label class="layout-field"><span class="sr-only">柱状图布局</span><select id="layout"><option value="grouped" selected>分组</option><option value="stacked">堆叠</option></select></label></div></div>
     <div id="usage-caption" class="chart-caption"><span id="chart-period">今天</span><span><b id="models">—</b> 个模型</span></div>
-    <div id="token-panel" role="tabpanel" aria-labelledby="tab-tokens"><div id="token-chart" class="chart"></div></div>
-    <div id="cost-panel" role="tabpanel" aria-labelledby="tab-cost" hidden><div id="cost-chart" class="chart"></div></div>
-    <div id="heatmap-panel" role="tabpanel" aria-labelledby="tab-heatmap" hidden><div id="heatmap-chart" class="heatmap"></div></div>
+    <div id="token-panel" role="tabpanel" aria-labelledby="tab-tokens"><div id="token-chart" class="chart"></div><p id="axis-note" class="axis-note" hidden>断轴分段刻度 · 点击锯齿展开 · 悬停查看真实数值</p></div>
     <div id="quota-panel" role="tabpanel" aria-labelledby="tab-quota" hidden>
-      <div class="quota-editor"><label class="quota-field"><span>额度窗口</span><select id="quota-bucket"><option value="weekly:weekly">每周额度</option></select></label></div>
-      <p id="quota-state" class="quota-help">打开或刷新时自动采集，同一分钟保留最新值。</p>
-      <div class="quota-caption"><span id="quota-period">按天记录</span><span>最新 <b id="quota-latest">—</b></span></div>
+      <div class="quota-editor"><strong>周额度剩余</strong><label id="quota-selector" class="quota-field"><span class="sr-only">额度组</span><select id="quota-bucket"><option value="weekly:codex">每周额度</option></select></label></div>
+      <div class="quota-caption"><span id="quota-period">按实际采集时间记录</span><span>最后观测 <b id="quota-latest">—</b></span></div>
       <div id="quota-chart" class="chart"></div>
+      <details id="quota-observation" class="quota-observation"><summary>观测说明</summary><p id="quota-state" class="quota-help">打开或刷新时自动采集，同一分钟保留最新值。</p></details>
     </div>
     <div id="legend" aria-label="模型图例"></div>
   </section>
-  <details id="model-details" class="model-details"><summary>模型明细<span>查看完整数据</span></summary><div class="table-wrap"><table><thead><tr><th>日期</th><th>模型</th><th>非缓存输入</th><th>缓存读取</th><th>缓存写入</th><th>输出</th><th>总 Token</th><th>估算 USD</th></tr></thead><tbody id="details"></tbody></table></div></details>
-  <footer><div class="sync-line"><span id="status" role="status">正在读取统计…</span><span id="meta"></span></div><p>本机日志 · 北京时间 · API 等价估算，非实际扣费</p></footer>
+  <details id="model-details" class="model-details"><summary>模型明细<span>查看完整数据</span></summary><div class="table-wrap"><table><thead><tr><th>日期</th><th>模型</th><th>非缓存输入</th><th>缓存读取</th><th>缓存写入</th><th>输出</th><th>总 Token</th></tr></thead><tbody id="details"></tbody></table></div></details>
+  <footer><div class="sync-line"><span id="status" role="status">正在读取统计…</span><span id="meta"></span></div></footer>
 </main>
 <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
 <script src="dashboard.js" type="module"></script>

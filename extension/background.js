@@ -1,10 +1,18 @@
-let syncing;
+import { openFloating, rememberFloatingSize } from './floating.mjs';
+let syncing, floating;
+
+chrome.windows.onBoundsChanged.addListener(window => {
+  rememberFloatingSize(chrome, window).catch(() => {});
+});
 
 // 同步由后台持有，关闭浮窗后仍可完成；再次打开复用进行中的请求。
 chrome.runtime.onMessage.addListener((request, sender, reply) => {
-  if (sender.id !== chrome.runtime.id || !['cache', 'sync', 'recordQuota', 'dashboard'].includes(request?.type)) return;
+  if (sender.id !== chrome.runtime.id || !['cache', 'sync', 'recordQuota', 'dashboard', 'floating'].includes(request?.type)) return;
   let result;
-  if (request.type === 'sync') {
+  if (request.type === 'floating') {
+    if (!floating) floating = openFloating(chrome).finally(() => { floating = undefined; });
+    result = floating;
+  } else if (request.type === 'sync') {
     if (!syncing) {
       syncing = chrome.runtime.sendNativeMessage('com.codex.usage', {
         type: 'sync', force: request.force === true,

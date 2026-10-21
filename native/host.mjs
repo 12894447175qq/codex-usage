@@ -2,7 +2,7 @@ import { mkdir, open, readFile, rename, unlink, writeFile } from 'node:fs/promis
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createQuotaSnapshot, mergeDays, migrateReport, upsertQuotaSnapshot } from './history.mjs';
-import { mergeQuota } from './quota.mjs';
+import { mergeQuota, readQuota, quotaState } from './quota.mjs';
 import { collectDashboardUsage, ensureDashboard } from './upstream.mjs';
 
 const root = process.env.CODEX_USAGE_STATE_DIR || join(homedir(), '.codex-usage-edge');
@@ -44,21 +44,23 @@ function quotaView(quota) {
     fiveHour: snapshots.filter(snapshot => snapshot?.window === 'five-hour'),
     error: quota?.error ?? null,
     checkedAt: quota?.checkedAt ?? null,
+    current: quota?.current ?? [],
   };
 }
 
 function cachedReport(history, quota, cached) {
-  if (cached) return { ...cached, quota: quotaView(quota), historyDays: history.days.length };
+  if (cached) {
+    const { pricingSource, pricingCatalogVersion, ...report } = cached;
+    return { ...report, schemaVersion: 6, days: mergeDays([], cached.days), quota: quotaView(quota), historyDays: history.days.length };
+  }
   if (!history.days.length && !quota.snapshots.length) return null;
   const sourceVersion = history.days.at(-1)?.sourceVersion ?? null;
   return {
-    schemaVersion: 3,
+    schemaVersion: 6,
     version: sourceVersion,
     syncedAt: history.updatedAt ?? new Date().toISOString(),
     timezone: 'Asia/Shanghai',
-    pricingSource: '本地历史账本',
     days: history.days,
-    heatmap: { date: day(), hours: [] },
     warnings: ['当前显示本地历史账本，尚未完成今日同步'],
     stale: true,
     quota: quotaView(quota),
@@ -68,23 +70,24 @@ function cachedReport(history, quota, cached) {
 
 async function sync(force) {
   const history = await loadHistory();
-  const collected = await collectDashboardUsage(root, force);
+  const [collected, liveQuota] = await Promise.all([
+    collectDashboardUsage(root, force),
+    readQuota().then(raw => quotaState(raw)).catch(error => ({ current: [], checkedAt: new Date().toISOString(), error: error.message })),
+  ]);
   const mergedDays = mergeDays(history.days, collected.days, collected.version);
   if ((await load(cachePath))?.days?.length && !mergedDays.length) throw new Error('本次未发现 Codex 记录，为避免空结果覆盖历史统计，保留上次结果');
 
   const previousQuota = await loadQuota();
-  const snapshots = [...(collected.quota?.weekly ?? []), ...(collected.quota?.fiveHour ?? [])];
+  const snapshots = [...(collected.quota?.weekly ?? []), ...(collected.quota?.fiveHour ?? []), ...liveQuota.current];
   const mergedQuota = {
     ...mergeQuota(previousQuota, snapshots),
-    error: collected.quota?.error ?? null,
-    checkedAt: collected.quota?.checkedAt ?? collected.syncedAt,
+    ...liveQuota,
   };
   const nextHistory = { schemaVersion: 2, timezone: 'Asia/Shanghai', updatedAt: collected.syncedAt, days: mergedDays };
-  await save(historyPath, nextHistory);
-  await save(quotaPath, mergedQuota);
-
   const warnings = [];
+  if (liveQuota.error) warnings.push(`实时额度读取失败：${liveQuota.error}；用量统计与额度历史仍可查看`);
   if (collected.upstream?.errorCount) warnings.push(`有 ${collected.upstream.errorCount} 个 Codex 会话文件未能完整解析`);
+  if (collected.upstream?.skippedCalls) warnings.push(`有 ${collected.upstream.skippedCalls} 次调用缺少有效时间，未纳入日期统计`);
   const response = {
     ...collected,
     days: mergedDays,
@@ -94,6 +97,8 @@ async function sync(force) {
     historyDays: mergedDays.length,
   };
   if (Buffer.byteLength(JSON.stringify(response)) > 900000) throw new Error('统计结果超出本机通信大小限制，保留上次结果');
+  await save(historyPath, nextHistory);
+  await save(quotaPath, mergedQuota);
   await save(cachePath, response);
   return response;
 }

@@ -1,0 +1,215 @@
+diff --git a/docs/pricing-history.md b/docs/pricing-history.md
+index cc020f68b6b2c4a4b6312bdd682c79e6d2054498..ce64f6359f9f0cb7c978097740ba1c80c7be40d8 100644
+--- a/docs/pricing-history.md
++++ b/docs/pricing-history.md
+@@ -1,8 +1,8 @@
+ # Dated OpenAI pricing
+ 
+-Research window: **2025-08-07 to 2026-09-05**, covering more than twelve months.
+-Catalog: `public/pricing-catalog.js`, version `2026-09-05.1`.
+-Last source review: 2026-09-05 (Europe/Paris). Next routine review: 2026-10-05.
++Research window: **2025-08-07 to 2026-10-12**, covering more than twelve months.
++Catalog: `public/pricing-catalog.js`, version `2026-10-12.1`.
++Last API source review: 2026-10-12 (Asia/Shanghai). Next routine review: 2026-11-12. The independent credit card retains its existing dated entries; no new credit rates are inferred from API prices.
+ 
+ ## What the dashboard measures
+ 
+@@ -36,6 +36,10 @@ Standard text-token amounts below are USD per million **input / cached input / o
+ | 2026-08-21 | **Sol promotional price cut** | 4 / 0.40 / 20; credits become 100 / 10 / 500 | [Dated changelog](https://developers.openai.com/api/docs/changelog), [API and credit reduction notice](https://openai.com/index/gpt-5-6/), [credit card](https://learn.chatgpt.com/docs/pricing) |
+ | 2026-09-03 | GPT-6 Astra | 10 / 1 / 50; API Fast 2x. Credits: 250 / 25 / 1,250; Codex Fast 2.5x | [Launch date](https://developers.openai.com/api/docs/changelog), [Astra rules](https://developers.openai.com/api/docs/models/gpt-6-astra), [API prices](https://developers.openai.com/api/docs/pricing), [credits](https://learn.chatgpt.com/docs/pricing) |
+ 
++| 2026-09-22 | GPT-6 Sol and Luna API launch | Sol: 2 / 0.20 / 10; Luna: 0.10 / 0.01 / 0.50; Fast 2x | [Sol model card](https://developers.openai.com/api/docs/models/gpt-6-sol), [Luna model card](https://developers.openai.com/api/docs/models/gpt-6-luna), [dated changelog](https://developers.openai.com/api/docs/changelog) |
++| 2026-09-29 | GPT-6.1 Sol API launch; Astra Ultrafast | Sol: 2 / 0.10 / 10; Fast 2x. Astra Ultrafast: 6x Standard | [Sol model card](https://developers.openai.com/api/docs/models/gpt-6.1-sol), [Astra model card](https://developers.openai.com/api/docs/models/gpt-6-astra), [changelog](https://developers.openai.com/api/docs/changelog) |
++| 2026-10-08 | GPT-6.1 Sol Ultrafast | 6x Standard | [Model card](https://developers.openai.com/api/docs/models/gpt-6.1-sol), [dated changelog](https://developers.openai.com/api/docs/changelog) |
++
+ The changelog also covers image, audio, video, tools and storage products. Examples in this window include the December 2025 image-model release, April 2026 image-model release and June 2026 container billing granularity change. Their counters/units are not present in this dashboard's token observations, so they are not silently mixed into text-token estimates. This is a sourced history for supported text/Codex models, not a claim to reconstruct every OpenAI product's invoices or every account-specific contract.
+ 
+ ## Evidence, precision and missing history
+@@ -46,16 +50,16 @@ The changelog also covers image, audio, video, tools and storage products. Examp
+ - Earlier credit rates, preview access before API availability, unknown model aliases, missing timestamps and unsupported service tiers stay **unrated**, excluded from monetary sums. Entirely unrated totals display an em dash; partial totals have an asterisk and an excluded-call count. This is not zero-cost usage.
+ - Published dates rarely specify an exact rollout hour. Day-only periods use **00:00 UTC** as an explicit convention, regardless of browser timezone. Calls on the change day are marked estimated. Global or regional rollout timing can differ.
+ - Generic prefix matching is forbidden: `gpt-6-astra-private` must not inherit Astra's official price. Explicit aliases and date-suffixed model IDs are supported. The `gpt-5.6` alias maps to Sol as documented in the July 9 changelog. An unrecognized moving alias remains unrated.
+-- Historical Fast availability is intentionally conservative. Where only the current API Fast card was verified, the catalog does not invent an earlier start date. GPT-5.5 Priority is supported from its API launch announcement; GPT-5.6 Fast and its long-context eligibility have separate dated gates. Fast long context for GPT-5.4/5.5 has no published applicable price in the reviewed current table.
++- Historical Fast availability is intentionally conservative. The existing current-card verification gate remains fixed at September 5, 2026; updating the review date does not move that gate or rewrite prior supported calls. Where only the current API Fast card was verified, the catalog does not invent an earlier start date. GPT-5.5 Priority is supported from its API launch announcement; GPT-5.6 Fast and its long-context eligibility have separate dated gates. Fast long context for GPT-5.4/5.5 has no published applicable price in the reviewed current table.
+ - Sol's promotion is guaranteed **at least through November 21**, not necessarily ending then. `promotionMinimumUntil` / `reviewAfter` are review reminders, not price-expiration dates. No automatic restoration to the old rate occurs.
+ 
+-## Astra and accounting boundaries
++## GPT-6 and accounting boundaries
+ 
+-For API Astra, prompts **strictly above 272,000 input tokens** apply 2x to input/cache and 1.5x to output for the whole request. Fast applies another 2x. These API factors are not copied into the credit calculator; its independent published Fast factor is 2.5x.
++For API GPT-6 Sol, Luna, Astra and GPT-6.1 Sol, prompts **strictly above 272,000 input tokens** apply 2x to input/cache and 1.5x to output for the whole request. Fast applies another 2x. Ultrafast applies 6x Standard only for Astra from September 29 and GPT-6.1 Sol from October 8. Batch/Flex apply 0.5x Standard from the supported model’s API release. Availability before those dates or on other catalog entries stays unrated. These API factors are not copied into the credit calculator; its independent published Fast factor is 2.5x.
+ 
+ Input includes cached reads and cache writes, so ordinary fresh input is `inputTokens - cachedInputTokens - cacheWriteInputTokens`. The [official cache cost example](https://developers.openai.com/api/docs/guides/prompt-caching) confirms this accounting. Reasoning output is already part of output tokens and is not charged twice. Invalid/nonfinite counters and cache exceeding input are reported rather than coerced into a plausible amount. A missing published cached rate is `null`, not a free cache price.
+ 
+-GPT-5.6 and Astra publish cache-write rates at 1.25x uncached input. Analyzer v8 preserves the optional `cache_write_input_tokens` observation as `cacheWriteInputTokens`. Measured writes are subtracted from ordinary input and charged once at the documented write rate, including API Fast/long-context factors. Older calls without this field remain distinguishable from observed zero writes and carry an unobserved-write count and estimated coverage when uncached input could contain writes. Tool fees, unobserved cache-write surcharges, regional processing uplifts, negotiated rates, Batch/Flex and other unobserved details are excluded or explicitly unsupported. Estimates are not exact invoices.
++GPT-5.6, GPT-6 and GPT-6.1 Sol publish cache-write rates at 1.25x uncached input. Analyzer v8 preserves the optional `cache_write_input_tokens` observation as `cacheWriteInputTokens`. Measured writes are subtracted from ordinary input and charged once at the documented write rate, including API Fast/long-context factors. Older calls without this field remain distinguishable from observed zero writes and carry an unobserved-write count and estimated coverage when uncached input could contain writes. Tool fees, unobserved cache-write surcharges, regional processing uplifts, negotiated rates and other unobserved details are excluded or explicitly unsupported. Estimates are not exact invoices.
+ 
+ ## UI, migration and reproducibility
+ 
+diff --git a/public/api-pricing.js b/public/api-pricing.js
+index cdb8a1244c8d27ea9fbdbadfee5ea2e009e6ce5c..37ce18bb066b6f4aa3a26ffa5d076de45757ddbc 100644
+--- a/public/api-pricing.js
++++ b/public/api-pricing.js
+@@ -50,7 +50,7 @@ export function apiFastMultiplierFor(pricing, model, serviceTier, timestamp = nu
+ export function apiCostOfCalls(calls = [], pricing = mergeApiPricing()) {
+   const result = {
+     cost: 0, freshInputCost: 0, cachedInputCost: 0, cacheWriteCost: 0, outputCost: 0,
+-    standardCost: 0, fastPremiumCost: 0, fastCalls: 0, unsupportedFastCalls: 0,
++    standardCost: 0, fastPremiumCost: 0, fastCalls: 0, unsupportedFastCalls: 0, ultrafastCalls: 0, discountedCalls: 0,
+     estimatedCalls: 0, unratedCalls: 0, missingTimestampCalls: 0, boundaryCalls: 0,
+     longContextCalls: 0, unobservedCacheWriteCalls: 0, totalCalls: calls.length, ratedCalls: 0,
+     catalogVersion: PRICING_CATALOG_VERSION, mode: pricing.mode, asOf: pricing.asOf,
+@@ -79,12 +79,20 @@ export function apiCostOfCalls(calls = [], pricing = mergeApiPricing()) {
+     const longContext = Boolean(rate?.longContextThreshold && input > rate.longContextThreshold);
+     const tier = call.serviceTier || "default";
+     const fast = tier === "priority" || tier === "fast";
+-    if (!["default", "standard", "priority", "fast"].includes(tier)) { omit("unsupported-tier"); continue; }
++    if (!["default", "standard", "priority", "fast", "ultrafast", "batch", "flex"].includes(tier)) { omit("unsupported-tier"); continue; }
+     let multiplier = 1;
+     if (fast) {
+       multiplier = pricing.mode === "custom" ? pricing.fastMultipliers?.[resolved.key] : rate?.fastFrom && resolved.day >= rate.fastFrom ? rate.fastMultiplier : null;
+       if (!multiplier || (longContext && (!rate?.fastLongContextFrom || resolved.day < rate.fastLongContextFrom))) { omit("unsupported-fast"); continue; }
+     }
++    if (tier === "ultrafast") {
++      multiplier = rate?.ultrafastFrom && resolved.day >= rate.ultrafastFrom ? rate.ultrafastMultiplier : null;
++      if (!multiplier) { omit("unsupported-tier"); continue; }
++    }
++    if (tier === "batch" || tier === "flex") {
++      if (!rate?.discountedFrom || resolved.day < rate.discountedFrom) { omit("unsupported-tier"); continue; }
++      multiplier = 0.5;
++    }
+     const freshCost = fresh * (price.input || 0) * (longContext ? 2 : 1) / 1_000_000;
+     const cachedCost = cached * (price.cached || 0) * (longContext ? 2 : 1) / 1_000_000;
+     const writeCost = writes * (price.input || 0) * (rate?.cacheWriteMultiplier || 1) * (longContext ? 2 : 1) / 1_000_000;
+@@ -96,13 +104,15 @@ export function apiCostOfCalls(calls = [], pricing = mergeApiPricing()) {
+     result.outputCost += outputCost * multiplier;
+     result.standardCost += standard;
+     result.cost += standard * multiplier;
+-    result.fastPremiumCost += standard * (multiplier - 1);
++    if (fast || tier === "ultrafast") result.fastPremiumCost += standard * (multiplier - 1);
+     result.ratedCalls += 1;
+     if (fast) result.fastCalls += 1;
++    if (tier === "ultrafast") result.ultrafastCalls += 1;
++    if (tier === "batch" || tier === "flex") result.discountedCalls += 1;
+     if (longContext) result.longContextCalls += 1;
+     const unobservedWrites = Boolean(rate?.cacheWriteMultiplier && input > cached && !Object.hasOwn(usage, "cacheWriteInputTokens"));
+     if (unobservedWrites) result.unobservedCacheWriteCalls += 1;
+-    const boundary = pricing.mode === "historical" && (resolved.boundaryDay || (fast && [rate.fastFrom, rate.fastLongContextFrom].includes(resolved.day)));
++    const boundary = pricing.mode === "historical" && (resolved.boundaryDay || (fast && [rate.fastFrom, rate.fastLongContextFrom].includes(resolved.day)) || (tier === "ultrafast" && resolved.day === rate.ultrafastFrom) || (["batch", "flex"].includes(tier) && resolved.day === rate.discountedFrom));
+     if (boundary) result.boundaryCalls += 1;
+     if (pricing.mode === "custom" || rate?.evidence === "reconstructed" || boundary || unobservedWrites) result.estimatedCalls += 1;
+     const id = pricing.mode === "custom" ? `custom:${price.key}` : rate.id;
+diff --git a/public/pricing-catalog.js b/public/pricing-catalog.js
+index bc30f38ee31e62c9da91e945deb1c7955714441f..db41926dd5b9bcaf9994473594ba10dda4e2b778 100644
+--- a/public/pricing-catalog.js
++++ b/public/pricing-catalog.js
+@@ -1,9 +1,9 @@
+ // Public, offline rate history. Evidence and maintenance: docs/pricing-history.md.
+ // Day-only announcements use 00:00 UTC; their boundary day remains estimated.
+-export const PRICING_CATALOG_VERSION = "2026-09-05.1";
+-export const PRICING_VERIFIED_AT = "2026-09-05";
++export const PRICING_CATALOG_VERSION = "2026-10-12.1";
++export const PRICING_VERIFIED_AT = "2026-10-12";
+ export const PRICING_RESEARCHED_FROM = "2025-08-07";
+-export const PRICING_REVIEW_AFTER = "2026-10-05";
++export const PRICING_REVIEW_AFTER = "2026-11-12";
+ export const PRICING_SOURCES = Object.freeze({
+   api: "https://developers.openai.com/api/docs/pricing",
+   credits: "https://learn.chatgpt.com/docs/pricing",
+@@ -28,7 +28,7 @@ function add(billing, model, effectiveFrom, values, options = {}) {
+     evidence: "documented", sources: ["api", "changelog"],
+     standard: price(values), fastMultiplier: null, fastFrom: null,
+     longContextThreshold: null, fastLongContextFrom: null,
+-    cacheWriteMultiplier: null, ...options,
++    cacheWriteMultiplier: null, ultrafastMultiplier: null, ultrafastFrom: null, discountedFrom: null, ...options,
+   });
+ }
+ const api = (...args) => add("api", ...args);
+@@ -36,7 +36,7 @@ const credits = (...args) => add("credits", ...args);
+ const long = { longContextThreshold: 272_000 };
+ // Rates whose historical Fast availability was not established are only enabled
+ // from the date of direct verification. Earlier Fast calls stay visibly unrated.
+-const currentFast = (multiplier) => ({ fastMultiplier: multiplier, fastFrom: PRICING_VERIFIED_AT });
++const currentFast = (multiplier) => ({ fastMultiplier: multiplier, fastFrom: "2026-09-05" });
+ 
+ api("gpt-5", "2025-08-07", [1.25, 0.125, 10], { sources: ["gpt5", "api"], ...currentFast(2) });
+ api("gpt-5-mini", "2025-08-07", [0.25, 0.025, 2], { sources: ["gpt5", "api"], ...currentFast(1.8) });
+@@ -69,9 +69,23 @@ api("gpt-5.6-luna", "2026-07-09", [1, 0.1, 6], { ...family56, sources: ["gpt56",
+ api("gpt-5.6-luna", "2026-07-30", [0.2, 0.02, 1.2], { ...family56, sources: ["julyCut", "api", "changelog"] });
+ api("gpt-6-astra", "2026-09-03", [10, 1, 50], {
+   ...long, fastMultiplier: 2, fastFrom: "2026-09-03", fastLongContextFrom: "2026-09-03",
++  ultrafastMultiplier: 6, ultrafastFrom: "2026-09-29", discountedFrom: "2026-09-03",
+   cacheWriteMultiplier: 1.25, sources: ["astra", "api", "changelog"],
+ });
+ 
++// Verified against model pages and dated release notes on 2026-10-12.
++// Keep the earlier Fast verification date above fixed when reviewing the catalog.
++const family6 = (date, model) => ({
++  ...long, cacheWriteMultiplier: 1.25, fastMultiplier: 2,
++  fastFrom: date, fastLongContextFrom: date, discountedFrom: date,
++  sources: [`https://developers.openai.com/api/docs/models/${model}`, "api", "changelog"],
++});
++api("gpt-6-sol", "2026-09-22", [2, 0.2, 10], family6("2026-09-22", "gpt-6-sol"));
++api("gpt-6-luna", "2026-09-22", [0.1, 0.01, 0.5], family6("2026-09-22", "gpt-6-luna"));
++api("gpt-6.1-sol", "2026-09-29", [2, 0.1, 10], {
++  ...family6("2026-09-29", "gpt-6.1-sol"), ultrafastMultiplier: 6, ultrafastFrom: "2026-10-08",
++});
++
+ // Codex credits are independent of API USD. Before our dated observation on
+ // August 11 the older token rate cards are not recoverable from these sources.
+ const creditOptions = (multiplier, sources = ["credits", "speed"]) => ({ fastMultiplier: multiplier, fastFrom: "2026-08-11", sources, evidence: "observed" });
+diff --git a/test/gpt6-pricing.test.mjs b/test/gpt6-pricing.test.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..5242c2e41355f1b4f1e9c242bdb866936bf3994f
+--- /dev/null
++++ b/test/gpt6-pricing.test.mjs
+@@ -0,0 +1,49 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { apiCostOfCalls } from '../public/api-pricing.js';
++import { resolveRate } from '../public/pricing-catalog.js';
++
++const call = (model, tier = 'default', timestamp = '2026-10-12') => ({
++  model, serviceTier: tier, timestamp,
++  usage: { inputTokens: 200_000, cachedInputTokens: 100_000, cacheWriteInputTokens: 0, outputTokens: 10_000 },
++});
++const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} != ${expected}`);
++
++test('GPT-6 Sol, Luna and 6.1 Sol use their own cache rates and dated launch boundaries', () => {
++  for (const [model, rate, expected, launch] of [
++    ['gpt-6-sol', .2, .32, '2026-09-22'],
++    ['gpt-6-luna', .01, .016, '2026-09-22'],
++    ['gpt-6.1-sol', .1, .31, '2026-09-29'],
++  ]) {
++    const result = apiCostOfCalls([call(model)]);
++    near(result.cost, expected);
++    assert.equal(result.unratedCalls, 0);
++    assert.equal(resolveRate('api', model, '2026-10-12').rate.standard.cached, rate);
++    assert.equal(apiCostOfCalls([call(model, 'default', launch)]).boundaryCalls, 1);
++    assert.equal(apiCostOfCalls([call(model, 'default', '2026-09-21')]).unratedCalls, 1);
++    near(apiCostOfCalls([call(model, 'priority')]).cost, expected * 2);
++    near(apiCostOfCalls([call(model, 'fast')]).cost, expected * 2);
++  }
++});
++
++test('new model cache writes and long context combine once with Fast', () => {
++  const value = call('gpt-6.1-sol', 'fast');
++  value.usage = { inputTokens: 300_000, cachedInputTokens: 100_000, cacheWriteInputTokens: 20_000, outputTokens: 10_000 };
++  // 180K fresh: .72; 100K cached: .02; 20K writes: .10; output: .15; then Fast x2.
++  near(apiCostOfCalls([value]).cost, 1.98);
++});
++
++test('Ultrafast uses its own dated x6 rate; Batch/Flex use half of Standard', () => {
++  near(apiCostOfCalls([call('gpt-6.1-sol', 'ultrafast')]).cost, .31 * 6);
++  assert.equal(apiCostOfCalls([call('gpt-6.1-sol', 'ultrafast', '2026-10-07')]).unratedCalls, 1);
++  assert.equal(apiCostOfCalls([call('gpt-6.1-sol', 'ultrafast', '2026-10-08')]).boundaryCalls, 1);
++  assert.equal(apiCostOfCalls([call('gpt-6-luna', 'ultrafast')]).unratedCalls, 1);
++  near(apiCostOfCalls([call('gpt-6-astra', 'ultrafast')]).cost, 1.6 * 6);
++  for (const tier of ['batch', 'flex']) near(apiCostOfCalls([call('gpt-6.1-sol', tier)]).cost, .31 / 2);
++});
++
++test('reviewing the catalog does not move previously verified historical Fast dates', () => {
++  const result = apiCostOfCalls([call('gpt-5.3-codex', 'priority', '2026-09-06')]);
++  assert.equal(result.unratedCalls, 0);
++  assert.equal(resolveRate('api', 'gpt-5.3-codex', '2026-09-06').rate.fastFrom, '2026-09-05');
++});

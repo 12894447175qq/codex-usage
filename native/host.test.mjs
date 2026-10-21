@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile, spawn } from 'node:child_process';
@@ -46,10 +46,29 @@ test('使用 capisoft API 同步、保留缓存并支持打开完整面板', asy
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${server.address().port}`;
-  const env = { ...process.env, CODEX_USAGE_STATE_DIR: join(dir, 'state'), CODEX_USAGE_DASHBOARD_URL: url };
+  const fakeCodex = join(dir, 'fake-codex.mjs');
+  const live = { rateLimitsByLimitId: { codex: { planType: 'prolite', primary: { usedPercent: 10, windowDurationMins: 10080, resetsAt: 1792309526 } } }, rateLimitResetCredits: { availableCount: 3 } };
+  await writeFile(fakeCodex, `#!/usr/bin/env node
+import { createInterface } from 'node:readline';
+createInterface({ input: process.stdin }).on('line', line => {
+  const request = JSON.parse(line);
+  if (request.method === 'initialize') console.log(JSON.stringify({ id: 1, result: {} }));
+  if (request.method === 'account/rateLimits/read') console.log(JSON.stringify({ id: 2, result: ${JSON.stringify(live)} }));
+});
+`);
+  await chmod(fakeCodex, 0o700);
+  const originalSessions = usage.sessions;
+  const env = { ...process.env, CODEX_USAGE_CODEX_BIN: fakeCodex, CODEX_USAGE_STATE_DIR: join(dir, 'state'), CODEX_USAGE_DASHBOARD_URL: url };
   try {
     const first = JSON.parse((await exec(process.execPath, [host, '--sync'], { env })).stdout);
     assert.equal(first.ok, true);
+    assert.equal(first.report.schemaVersion, 6);
+    assert.equal('costUSD' in first.report.days[0].models[0], false);
+    assert.equal(first.report.quota.current.length, 1);
+    assert.equal(first.report.quota.current[0].remainingPercent, 90);
+    assert.equal(first.report.quota.current[0].resetsAvailable, 3);
+    assert.equal(first.report.quota.current[0].limitId, 'codex');
+    assert.equal(first.report.quota.error, null);
     assert.equal(first.report.days[0].models[0].totalTokens, 15);
     assert.equal(first.report.quota.weekly[0].remainingPercent, 93);
     assert.equal(first.report.quota.fiveHour[0].remainingPercent, 88);
@@ -59,9 +78,37 @@ test('使用 capisoft API 同步、保留缓存并支持打开完整面板', asy
     assert.equal(dashboardFrame.readUInt32LE(0), dashboardFrame.length - 4);
     assert.equal(JSON.parse(dashboardFrame.subarray(4)).url, url);
 
+    const oldCache = { ...first.report, schemaVersion: 5, pricingSource: 'legacy', pricingCatalogVersion: 'legacy', days: [{ ...first.report.days[0], models: [{ ...first.report.days[0].models[0], costUSD: .1, knownCostUSD: .1 }] }] };
+    await writeFile(join(env.CODEX_USAGE_STATE_DIR, 'report.json'), JSON.stringify(oldCache));
     const cacheFrame = await message(env, { type: 'cache' });
     assert.equal(cacheFrame.readUInt32LE(0), cacheFrame.length - 4);
     assert.equal(JSON.parse(cacheFrame.subarray(4)).report.version, 'external');
+    const migratedCache = JSON.parse(cacheFrame.subarray(4)).report;
+    assert.equal(migratedCache.schemaVersion, 6);
+    assert.equal('pricingSource' in migratedCache, false);
+    assert.equal('costUSD' in migratedCache.days[0].models[0], false);
+
+    // 超限结果不能先写入账本，否则下一次读取会把失败结果当成历史。
+    const historyBefore = await readFile(join(env.CODEX_USAGE_STATE_DIR, 'history.json'), 'utf8');
+    const quotaBefore = await readFile(join(env.CODEX_USAGE_STATE_DIR, 'quota.json'), 'utf8');
+    // Token-only rows are smaller; keep the fixture above the unchanged 900KB limit.
+    usage.sessions = [{ calls: Array.from({ length: 10000 }, (_, index) => ({
+      timestamp: '2026-09-15T01:00:00.000Z', model: `future-model-${index}`,
+      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+    })) }];
+    const oversized = JSON.parse((await message(env, { type: 'sync' })).subarray(4));
+    assert.equal(oversized.ok, false);
+    assert.match(oversized.error, /大小限制/);
+    assert.equal(await readFile(join(env.CODEX_USAGE_STATE_DIR, 'history.json'), 'utf8'), historyBefore);
+    assert.equal(await readFile(join(env.CODEX_USAGE_STATE_DIR, 'quota.json'), 'utf8'), quotaBefore);
+
+    usage.sessions = originalSessions;
+    const quotaFailure = JSON.parse((await exec(process.execPath, [host, '--sync'], { env: { ...env, CODEX_USAGE_CODEX_BIN: '/nonexistent/codex' } })).stdout);
+    assert.equal(quotaFailure.ok, true);
+    assert.deepEqual(quotaFailure.report.quota.current, []);
+    assert.match(quotaFailure.report.quota.error, /无法启动/);
+    assert.equal(quotaFailure.report.quota.weekly.length, first.report.quota.weekly.length);
+    assert.ok(quotaFailure.report.warnings.some(warning => warning.includes('实时额度读取失败')));
 
     await new Promise(resolve => server.close(resolve));
     let failed;

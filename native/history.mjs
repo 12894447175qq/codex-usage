@@ -13,7 +13,11 @@ export function mergeDays(existing, incoming, sourceVersion) {
     if (!validDate(day?.date)) continue;
     days.set(day.date, sourceVersion ? { ...day, sourceVersion } : day);
   }
-  return [...days.values()].sort((a, b) => a.date.localeCompare(b.date));
+  // Remove obsolete derived prices while retaining Token counters and other metadata.
+  return [...days.values()].sort((a, b) => a.date.localeCompare(b.date)).map(day => ({
+    ...day,
+    models: day.models.map(({ costUSD, knownCostUSD, costKnown, unknownCostCalls, ...tokens }) => tokens),
+  }));
 }
 
 export function migrateReport(report) {
