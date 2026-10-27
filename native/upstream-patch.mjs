@@ -12,7 +12,7 @@ export async function applyUpstreamPatch(upstreamRoot, patchPath) {
   try {
     await exec('git', ['apply', '--check', patchPath], options);
   } catch (error) {
-    throw new Error(`无法应用上游价格补丁，请核对子模块版本和本地修改；未改写文件。${error.stderr?.trim() || error.message}`, { cause: error });
+    throw new Error(`无法应用上游补丁，请核对子模块版本和本地修改；未改写文件。${error.stderr?.trim() || error.message}`, { cause: error });
   }
   await exec('git', ['apply', patchPath], options);
   return 'applied';

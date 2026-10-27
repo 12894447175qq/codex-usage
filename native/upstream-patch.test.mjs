@@ -61,3 +61,18 @@ test('发布补丁可在干净子模块快照上恢复本地价格功能及其�
   assert.match(result.stdout, /# tests 4/);
   assert.match(result.stdout, /# fail 0/);
 });
+
+test('分段解析补丁可在干净子模块应用，重复安装幂等且回归用例实际运行', async t => {
+  const { dir, root } = await fixture(t);
+  const upstream = fileURLToPath(new URL('../vendor/codex_usage/', import.meta.url));
+  const releasePatch = fileURLToPath(new URL('../patches/codex-usage-analyzer.patch', import.meta.url));
+  const archive = join(dir, 'source.tar');
+  await exec('git', ['archive', '--format=tar', `--output=${archive}`, 'f93c0920b1f1141b77967115aa08e994e3f52508', 'package.json', 'src/analyzer.mjs', 'src/quota-history.mjs', 'src/public-usage.mjs', 'src/dashboard-contract.mjs', 'test/analyzer.test.mjs', 'test/quota-observations.test.mjs', 'test/dated-pricing.test.mjs'], { cwd: upstream });
+  await exec('tar', ['-xf', archive, '-C', root]);
+  assert.equal(await applyUpstreamPatch(root, releasePatch), 'applied');
+  assert.equal(await applyUpstreamPatch(root, releasePatch), 'already-applied');
+  const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
+  const result = await exec(process.execPath, ['--test', '--test-reporter=tap', 'test/analyzer.test.mjs', 'test/rollout-segments.test.mjs'], { cwd: root, env });
+  assert.match(result.stdout, /# tests 13/);
+  assert.match(result.stdout, /# fail 0/);
+});

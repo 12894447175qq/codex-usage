@@ -19,6 +19,7 @@ if (!await exists(join(upstreamRoot, 'package.json'))) {
   await exec('git', ['submodule', 'update', '--init', '--depth', '1', 'vendor/codex_usage'], { cwd: projectRoot, timeout: 120_000 });
 }
 await applyUpstreamPatch(upstreamRoot, join(projectRoot, 'patches/codex-usage-pricing.patch'));
+await applyUpstreamPatch(upstreamRoot, join(projectRoot, 'patches/codex-usage-analyzer.patch'));
 await exec(process.execPath, [join(upstreamRoot, 'scripts/build-dashboard-ui.mjs')], { cwd: upstreamRoot, timeout: 60_000 });
 const manifest = JSON.parse(await readFile(resolve(here, '../extension/manifest.json'), 'utf8'));
 const id = [...createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest('hex').slice(0, 32)].map(c => String.fromCharCode(97 + parseInt(c, 16))).join('');

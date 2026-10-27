@@ -55,7 +55,7 @@ cd codex-usage
 node native/install.mjs
 ```
 
-For an existing checkout, the installer initializes a missing submodule, applies the bundled upstream pricing patch, and builds the dashboard assets automatically. Reinstalling recognizes an already-applied patch; conflicting local changes stop installation without overwriting files.
+For an existing checkout, the installer initializes a missing submodule, applies the bundled upstream pricing and analyzer patches, and builds the dashboard assets automatically. Reinstalling recognizes an already-applied patch; conflicting local changes stop installation without overwriting files.
 
 Then:
 
@@ -68,7 +68,7 @@ The separate-window button opens a movable, resizable popup. The four-tile butto
 
 ## Update extension
 
-Reload “Codex 每日用量” in `edge://extensions`, check version `0.10.2`, and close/reopen existing popup windows. The existing native host installation and local history remain usable. The first upgrade selects grouped bars; later layout choices remain saved. See [0.10.2 update notes (Chinese)](UPGRADE-0.10.2.md).
+Run `node native/install.mjs` to apply the analyzer patch, then reload “Codex 每日用量” in `edge://extensions`, check version `0.10.3`, and close/reopen existing popup windows. Restart an already-running local dashboard service (or restart the computer) before refreshing: reloading the extension does not restart its collector. Existing history and quota observations remain usable; analyzer version 11 rebuilds stale parse caches. See [0.10.3 update notes (Chinese)](UPGRADE-0.10.3.md).
 
 ## Update upstream
 
@@ -77,7 +77,7 @@ git submodule update --remote vendor/codex_usage
 node native/install.mjs
 ```
 
-Pricing changes ship with the main repository as [`patches/codex-usage-pricing.patch`](patches/codex-usage-pricing.patch), based on the pinned submodule revision. Preserve and integrate local submodule changes before updating upstream. The installer stops on patch conflicts rather than overwriting files. Update the patch, run the tests, and commit the updated submodule pointer after integration. The integration validates the upstream `apiVersion`; an incompatible API keeps the last successful popup cache and reports the error.
+Pricing and parser changes ship with the main repository as [`patches/codex-usage-pricing.patch`](patches/codex-usage-pricing.patch) and [`patches/codex-usage-analyzer.patch`](patches/codex-usage-analyzer.patch), based on the pinned submodule revision. Preserve and integrate local submodule changes before updating upstream. The installer stops on patch conflicts rather than overwriting files. Update the patch, run the tests, and commit the updated submodule pointer after integration. The integration validates the upstream `apiVersion`; an incompatible API keeps the last successful popup cache and reports the error.
 
 ## Local data and privacy
 
@@ -88,6 +88,8 @@ Extension state lives under `~/.codex-usage-edge/`:
 - `quota.json`: five-hour and weekly quota observations.
 - `capisoft-usage-snapshot.json`: upstream incremental analysis snapshot.
 - `capisoft-runtime.json`: local dashboard process and address.
+
+Token totals come from readable local `.jsonl` logs. Paginated files of one conversation are merged, while overlapping copies are deduplicated. Compressed `.jsonl.zst` logs are not currently read. The Codex desktop Profile heatmap uses account-service statistics, so its totals can differ from this local scope; this extension does not fetch that account statistic.
 
 Local mode does not read `auth.json` and does not send raw JSONL, prompts, responses, reasoning, tool output, or file contents to the extension. The optional Mesh sends minimized signed snapshots only after explicit configuration.
 

@@ -74,6 +74,18 @@ createInterface({ input: process.stdin }).on('line', line => {
     assert.equal(first.report.quota.fiveHour[0].remainingPercent, 88);
     assert.equal(JSON.parse(await readFile(join(env.CODEX_USAGE_STATE_DIR, 'history.json'), 'utf8')).days.length, 1);
 
+    // A running managed daemon must not silently keep using the pre-fix parser.
+    await writeFile(join(env.CODEX_USAGE_STATE_DIR, 'capisoft-runtime.json'), JSON.stringify({ url, managed: true, version: 'fixture' }));
+    const managedEnv = { ...env }; delete managedEnv.CODEX_USAGE_DASHBOARD_URL;
+    const staleAnalyzer = JSON.parse((await message(managedEnv, { type: 'sync' })).subarray(4));
+    assert.equal(staleAnalyzer.ok, false);
+    assert.match(staleAnalyzer.error, /旧解析器/);
+    assert.equal(staleAnalyzer.report.days[0].models[0].totalTokens, 15);
+    usage.analyzerVersion = 11;
+    const freshAnalyzer = JSON.parse((await message(managedEnv, { type: 'sync' })).subarray(4));
+    assert.equal(freshAnalyzer.ok, true);
+    assert.equal(freshAnalyzer.report.days[0].models[0].totalTokens, 15);
+
     const dashboardFrame = await message(env, { type: 'dashboard' });
     assert.equal(dashboardFrame.readUInt32LE(0), dashboardFrame.length - 4);
     assert.equal(JSON.parse(dashboardFrame.subarray(4)).url, url);

@@ -203,5 +203,9 @@ export async function collectDashboardUsage(stateDir, force = false) {
   const dashboard = await ensureDashboard(stateDir);
   const response = await fetch(`${dashboard.url}/api/usage?source=local${force ? '&refresh=1' : ''}`, { signal: AbortSignal.timeout(60_000) });
   if (!response.ok) throw new Error(`capisoft 用量读取失败（HTTP ${response.status}）`);
-  return reportFromUsage(await response.json(), { version: dashboard.version, syncedAt: new Date().toISOString() });
+  const usage = await response.json();
+  if (dashboard.managed && (!Number.isInteger(usage.analyzerVersion) || usage.analyzerVersion < 11)) {
+    throw new Error('本地采集服务仍在运行旧解析器，可能遗漏会话分段；请重启本地面板服务或电脑后刷新。原账本已保留');
+  }
+  return reportFromUsage(usage, { version: dashboard.version, syncedAt: new Date().toISOString() });
 }

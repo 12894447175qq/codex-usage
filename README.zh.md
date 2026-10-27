@@ -54,7 +54,7 @@ cd codex-usage
 node native/install.mjs
 ```
 
-已有仓库无需手工初始化子模块；安装脚本会在缺失时执行初始化，应用仓库内的上游价格补丁，并生成本地仪表盘资源。重复安装会识别已应用的补丁；若与本地改动冲突，会停止并保留原文件。
+已有仓库无需手工初始化子模块；安装脚本会在缺失时执行初始化，应用仓库内的上游价格和解析器补丁，并生成本地仪表盘资源。重复安装会识别已应用的补丁；若与本地改动冲突，会停止并保留原文件。
 
 然后：
 
@@ -67,7 +67,7 @@ node native/install.mjs
 
 ## 更新扩展
 
-在 `edge://extensions` 找到“Codex 每日用量”，点击重新加载并确认版本 `0.10.2`，关闭并重新打开已有浮窗。本次无需重新安装本地主机，原有统计账本与额度历史继续保留。首次升级使用分组柱图，之后继续记住所选布局。详见 [0.10.2 更新说明](UPGRADE-0.10.2.md)。
+先运行 `node native/install.mjs` 应用解析器补丁，再在 `edge://extensions` 找到“Codex 每日用量”，点击重新加载并确认版本 `0.10.3`，关闭并重新打开已有浮窗。如果本地面板服务已在运行，还需重启该服务（或重启电脑）后刷新：重新加载扩展不会重启采集器。原有统计账本与额度历史继续保留，解析器版本 11 会重建旧的解析缓存。详见 [0.10.3 更新说明](UPGRADE-0.10.3.md)。
 
 ## 更新上游
 
@@ -76,7 +76,7 @@ git submodule update --remote vendor/codex_usage
 node native/install.mjs
 ```
 
-价格修改以 [`patches/codex-usage-pricing.patch`](patches/codex-usage-pricing.patch) 随主仓库发布，基于当前锁定的子模块版本。更新上游前应先保存并整合子模块内的修改，避免丢失补丁；上游变化导致冲突时，安装脚本会停止，不会强行覆盖。整合后更新补丁、运行测试并提交新的子模块版本指针。扩展会校验上游 `apiVersion`，接口不兼容时保留上次成功缓存并显示错误。
+价格和解析器修改分别以 [`patches/codex-usage-pricing.patch`](patches/codex-usage-pricing.patch) 和 [`patches/codex-usage-analyzer.patch`](patches/codex-usage-analyzer.patch) 随主仓库发布，基于当前锁定的子模块版本。更新上游前应先保存并整合子模块内的修改，避免丢失补丁；上游变化导致冲突时，安装脚本会停止，不会强行覆盖。整合后更新补丁、运行测试并提交新的子模块版本指针。扩展会校验上游 `apiVersion`，接口不兼容时保留上次成功缓存并显示错误。
 
 ## 本地数据与隐私
 
@@ -87,6 +87,8 @@ node native/install.mjs
 - `quota.json`：5 小时和每周额度观测。
 - `capisoft-usage-snapshot.json`：上游增量分析快照。
 - `capisoft-runtime.json`：本地面板进程和地址。
+
+Token 来自本机可读的 `.jsonl` 日志。同一会话的分页文件会合并统计，重叠副本会去重；当前不读取 `.jsonl.zst` 压缩日志。Codex 桌面应用 Profile 热力图使用账号服务统计，与本机日志的范围可能不同；本扩展没有读取该账号统计。
 
 本地模式不会读取 `auth.json`，不会把原始 JSONL、提示词、回答、推理、工具输出或文件内容传给扩展。完整面板的可选 Mesh 功能只有在显式配置后才会发送最小化、签名后的统计快照。
 

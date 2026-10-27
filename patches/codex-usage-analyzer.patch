@@ -1,0 +1,261 @@
+diff --git a/src/analyzer.mjs b/src/analyzer.mjs
+index 9726655d4ca9142034f93b4cd916071e57fb8639..81733e44b059516988700b54fbb0016a129682c3 100644
+--- a/src/analyzer.mjs
++++ b/src/analyzer.mjs
+@@ -13,7 +13,7 @@ const EMPTY_USAGE = Object.freeze({
+   totalTokens: 0,
+ });
+ 
+-export const ANALYZER_VERSION = 10;
++export const ANALYZER_VERSION = 11;
+ 
+ function projectNameFromCwd(value) {
+   const name = String(value || "").replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop()?.trim();
+@@ -223,6 +223,8 @@ function createTurn(id, timestamp, model, effort, serviceTier) {
+ 
+ export async function parseSessionFile(filePath, threadNames = new Map()) {
+   let meta = null;
++  let sessionStartTime = null;
++  let inheritedHistory = false;
+   let firstTimestamp = null;
+   let lastTimestamp = null;
+   let currentTurnId = null;
+@@ -231,6 +233,7 @@ export async function parseSessionFile(filePath, threadNames = new Map()) {
+   let currentServiceTier = "default";
+   let userMessages = 0;
+   let assistantMessages = 0;
++  const messageEvents = { user: [], assistant: [] };
+   let fiveHourQuota = null;
+   let weeklyQuota = null;
+   const weeklyQuotaObservations = [];
+@@ -261,10 +264,20 @@ export async function parseSessionFile(filePath, threadNames = new Map()) {
+       }
+ 
+       if (row.type === "session_meta") {
+-        meta = row.payload || {};
++        const nextMeta = row.payload || {};
++        if (!meta || !(meta.id || meta.session_id)) {
++          meta = nextMeta;
++          const time = Date.parse(meta.timestamp || timestamp);
++          sessionStartTime = Number.isFinite(time) ? time : null;
++        } else if ((nextMeta.id || nextMeta.session_id) && (nextMeta.id || nextMeta.session_id) !== (meta.id || meta.session_id)) {
++          // Fork histories may embed the parent's session header and old events.
++          inheritedHistory = true;
++        }
+         continue;
+       }
+ 
++      if (inheritedHistory && sessionStartTime !== null && Number.isFinite(Date.parse(timestamp)) && Date.parse(timestamp) < sessionStartTime) continue;
++
+       if (row.type === "turn_context") {
+         const payload = row.payload || {};
+         currentTurnId = payload.turn_id || currentTurnId;
+@@ -304,8 +317,10 @@ export async function parseSessionFile(filePath, threadNames = new Map()) {
+         }
+       } else if (payload.type === "user_message") {
+         userMessages += 1;
++        messageEvents.user.push(JSON.stringify([timestamp, payload.id || payload.message_id || null, currentTurnId]));
+       } else if (payload.type === "agent_message") {
+         assistantMessages += 1;
++        messageEvents.assistant.push(JSON.stringify([timestamp, payload.id || payload.message_id || null, currentTurnId]));
+       } else if (payload.type === "token_count" && payload.info?.last_token_usage) {
+         const usage = normalizeUsage(payload.info.last_token_usage);
+         const turn = currentTurnId ? turns.get(currentTurnId) : null;
+@@ -360,6 +375,7 @@ export async function parseSessionFile(filePath, threadNames = new Map()) {
+     completedExchanges: completedDurations.length,
+     userMessages,
+     assistantMessages,
++    messageEvents,
+     modelCalls: calls.length,
+     durationMs: completedDurations.reduce((sum, value) => sum + value, 0),
+     usage,
+@@ -373,6 +389,64 @@ export async function parseSessionFile(filePath, threadNames = new Map()) {
+   };
+ }
+ 
++// Union copies without deleting repeated occurrences inside an individual file.
++function unionOccurrences(lists, keyOf) {
++  const counts = new Map(), values = [];
++  for (const list of lists) {
++    const current = new Map();
++    for (const value of list) {
++      const key = keyOf(value), count = (current.get(key) || 0) + 1;
++      current.set(key, count);
++      if (count > (counts.get(key) || 0)) values.push(value);
++    }
++    for (const [key, count] of current) counts.set(key, Math.max(count, counts.get(key) || 0));
++  }
++  return values;
++}
++
++function mergeSessionFiles(parts) {
++  if (parts.length === 1) return parts[0];
++  parts = [...parts].sort((a, b) => String(a.updatedAt).localeCompare(String(b.updatedAt)) || a.filePath.localeCompare(b.filePath));
++  const newest = parts.at(-1);
++  const calls = unionOccurrences(parts.map(part => part.calls), call => !Number.isFinite(Date.parse(call.timestamp)) ? call : JSON.stringify([
++    call.timestamp, call.turnId, call.model, call.effort, call.serviceTier,
++    call.usage.inputTokens, call.usage.cachedInputTokens, call.usage.outputTokens,
++    call.usage.reasoningOutputTokens, call.usage.totalTokens, call.usage.cacheWriteInputTokens ?? null,
++  ])).sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)));
++  const turnById = new Map();
++  for (const part of parts) for (const turn of part.turns) {
++    const old = turnById.get(turn.id);
++    const dates = key => [old?.[key], turn[key]].filter(value => Number.isFinite(Date.parse(value))).sort();
++    turnById.set(turn.id, { ...old, ...turn, startedAt: dates('startedAt')[0] || turn.startedAt, completedAt: dates('completedAt').at(-1) || null });
++  }
++  for (const turn of turnById.values()) { turn.calls = 0; turn.usage = { ...EMPTY_USAGE }; }
++  for (const call of calls) {
++    const turn = turnById.get(call.turnId);
++    if (turn) { turn.calls += 1; turn.usage = addUsage(turn.usage, call.usage); }
++  }
++  const turns = [...turnById.values()];
++  for (const turn of turns) {
++    const start = Date.parse(turn.startedAt), end = Date.parse(turn.completedAt);
++    if (Number.isFinite(start) && Number.isFinite(end)) turn.durationMs = Math.max(0, end - start);
++  }
++  const completed = turns.map(turn => turn.durationMs).filter(Number.isFinite);
++  const messageEvents = Object.fromEntries(['user', 'assistant'].map(kind => [kind, unionOccurrences(parts.map(part => part.messageEvents[kind]), value => value)]));
++  const weeklyQuotaHistory = mergeWeeklyQuotaObservations(parts.flatMap(part => part.weeklyQuotaHistory || []));
++  const fiveHourQuota = parts.map(part => part.fiveHourQuota).filter(Boolean).sort((a, b) => String(b.observedAt).localeCompare(String(a.observedAt)))[0] || null;
++  return {
++    ...newest,
++    startedAt: parts.map(part => part.startedAt).filter(Boolean).sort()[0] || newest.startedAt,
++    models: [...new Set(calls.map(call => call.model).filter(Boolean))],
++    exchanges: turns.length, completedExchanges: completed.length,
++    userMessages: messageEvents.user.length, assistantMessages: messageEvents.assistant.length,
++    modelCalls: calls.length, durationMs: completed.reduce((sum, value) => sum + value, 0),
++    usage: calls.reduce((sum, call) => addUsage(sum, call.usage), { ...EMPTY_USAGE }),
++    turns, calls, messageEvents, weeklyQuotaHistory, weeklyQuota: weeklyQuotaHistory[0] || null, fiveHourQuota,
++    parseErrors: parts.reduce((sum, part) => sum + part.parseErrors, 0),
++    rolloutParts: parts,
++  };
++}
++
+ export async function analyzeCodexUsage(options = {}) {
+   const source = resolveCodexSource(options);
+   const sourceStatus = await inspectCodexSource(options);
+@@ -383,7 +457,7 @@ export async function analyzeCodexUsage(options = {}) {
+   const files = fileLists.flat();
+   const sessions = [];
+   const previousSessions = options.previousData?.analyzerVersion === ANALYZER_VERSION
+-    ? options.previousData.sessions || []
++    ? (options.previousData.sessions || []).flatMap(session => session.rolloutParts || [session])
+     : [];
+   const previousByFile = new Map(previousSessions
+     .filter((session) => session.filePath)
+@@ -412,12 +486,13 @@ export async function analyzeCodexUsage(options = {}) {
+     }
+   }));
+ 
+-  // A session may briefly exist in both active and archived folders. Keep the newest copy.
++  // One conversation can have disjoint paginated segments as well as archive copies.
+   const unique = new Map();
+   for (const session of sessions.filter((item) => item.id)) {
+-    const existing = unique.get(session.id);
+-    if (!existing || String(session.updatedAt) > String(existing.updatedAt)) unique.set(session.id, session);
++    if (!unique.has(session.id)) unique.set(session.id, []);
++    unique.get(session.id).push(session);
+   }
++  for (const [id, parts] of unique) unique.set(id, mergeSessionFiles(parts));
+ 
+   const weeklyQuotaHistory = mergeWeeklyQuotaObservations([...unique.values()]
+     .flatMap((session) => session.weeklyQuotaHistory || (session.weeklyQuota ? [session.weeklyQuota] : [])));
+diff --git a/test/analyzer.test.mjs b/test/analyzer.test.mjs
+index 98899d1ad53d16d4d571739b77f5a189d71921d9..2204b844dd81729d7406383fa85bdd11964e48ea 100644
+--- a/test/analyzer.test.mjs
++++ b/test/analyzer.test.mjs
+@@ -120,7 +120,7 @@ test("reuses persisted per-file analysis when a session has not changed", async
+ 
+   const first = await analyzeCodexUsage({ codexHome });
+   const second = await analyzeCodexUsage({ codexHome, previousData: first });
+-  assert.equal(first.analyzerVersion, 10);
++  assert.equal(first.analyzerVersion, 11);
+   assert.equal(second.sessions[0], first.sessions[0]);
+   assert.equal(second.sessions[0].fileSize > 0, true);
+   assert.equal(Number.isFinite(second.sessions[0].fileModifiedAtMs), true);
+@@ -155,7 +155,7 @@ test("supports least-privilege scoped sources without a Codex home mount", async
+   const result = await analyzeCodexUsage(options);
+   assert.equal(result.sessions[0].title, "Scoped source");
+   assert.equal(result.source.mode, "scoped");
+-  assert.match(await usageFingerprint(options), /^10:1:/);
++  assert.match(await usageFingerprint(options), /^11:1:/);
+ });
+ 
+ test("fingerprints include the analyzer version so persisted snapshots migrate after upgrades", async () => {
+@@ -166,7 +166,7 @@ test("fingerprints include the analyzer version so persisted snapshots migrate a
+   await mkdir(archivedSessionsPath);
+   await writeFile(path.join(sessionsPath, "session.jsonl"), `${JSON.stringify({ type: "session_meta", payload: { id: "versioned" } })}\n`);
+   const fingerprint = await usageFingerprint({ sessionsPath, archivedSessionsPath, sessionIndexPath: path.join(root, "missing-index.jsonl") });
+-  assert.match(fingerprint, /^10:/);
++  assert.match(fingerprint, /^11:/);
+ });
+ 
+ test("rejects a source with no readable session directory", async () => {
+diff --git a/test/dated-pricing.test.mjs b/test/dated-pricing.test.mjs
+index 8dabe0448294a12dc2603a5aeb8b298ceb56fcea..ad7222dce629bb99ec7fe7f252a3bcfaee1fc09b 100644
+--- a/test/dated-pricing.test.mjs
++++ b/test/dated-pricing.test.mjs
+@@ -204,7 +204,7 @@ test("version 7 persisted sessions are reparsed to recover cache-write counters"
+     const legacy = structuredClone(first); legacy.analyzerVersion = 7;
+     delete legacy.sessions[0].calls[0].usage.cacheWriteInputTokens;
+     const migrated = await analyzeCodexUsage({ ...options, previousData: legacy });
+-    assert.equal(migrated.analyzerVersion, 10);
++    assert.equal(migrated.analyzerVersion, 11);
+     assert.equal(migrated.sessions[0].calls[0].usage.cacheWriteInputTokens, 40);
+   } finally { await rm(dir, { recursive: true, force: true }); }
+ });
+diff --git a/test/quota-observations.test.mjs b/test/quota-observations.test.mjs
+index 99cb5469b4bd69af0f0b787ab96abbcc2330873b..50a664db1209a0d3ab906d823ba55e96c6bdf067 100644
+--- a/test/quota-observations.test.mjs
++++ b/test/quota-observations.test.mjs
+@@ -142,7 +142,7 @@ test("version 8 cached sessions are reparsed to recover historical quota observa
+     legacy.analyzerVersion = 8;
+     for (const period of legacy.sessions[0].weeklyQuotaHistory) delete period.observations;
+     const recovered = await analyzeCodexUsage({ ...options, previousData: legacy });
+-    assert.equal(recovered.analyzerVersion, 10);
++    assert.equal(recovered.analyzerVersion, 11);
+     assert.deepEqual(recovered.weeklyQuotaHistory[0].observations, compactQuotaObservations(observations));
+   } finally { await rm(dir, { recursive: true, force: true }); }
+ });
+diff --git a/test/rollout-segments.test.mjs b/test/rollout-segments.test.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..d14d22dd5f8ce5d3f4dd820e9598104e818c4594
+--- /dev/null
++++ b/test/rollout-segments.test.mjs
+@@ -0,0 +1,36 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import {mkdtemp,mkdir,writeFile,appendFile,rm} from 'node:fs/promises';
++import {tmpdir} from 'node:os';
++import path from 'node:path';
++import {analyzeCodexUsage,parseSessionFile} from '../src/analyzer.mjs';
++import {toPublicUsage} from '../src/public-usage.mjs';
++const row=(timestamp,type,payload)=>({timestamp,type,payload});
++const meta=(id,time)=>row(time,'session_meta',{id,timestamp:time,history_mode:'paginated'});
++const turn=(id,time,model='fixture')=>[row(time,'turn_context',{turn_id:id,model}),row(time,'event_msg',{type:'task_started',turn_id:id}),row(time,'event_msg',{type:'user_message',message:'private fixture content'})];
++const call=(time,n)=>row(time,'event_msg',{type:'token_count',info:{last_token_usage:{input_tokens:n-1,cached_input_tokens:0,output_tokens:1,total_tokens:n}}});
++const complete=(id,time)=>[row(time,'event_msg',{type:'agent_message',message:'private fixture answer'}),row(time,'event_msg',{type:'task_complete',turn_id:id})];
++const write=async(p,rows)=>writeFile(p,rows.map(JSON.stringify).join('\n')+'\n');
++async function fixture(t){const home=await mkdtemp(path.join(tmpdir(),'codex-segments-'));t.after(()=>rm(home,{recursive:true,force:true}));for(const dir of ['sessions','archived_sessions'])await mkdir(path.join(home,dir));return home;}
++const morning=[meta('same-thread','2026-10-26T01:00:00Z'),...turn('turn-a','2026-10-26T01:00:01Z'),call('2026-10-26T01:00:02Z',100),...complete('turn-a','2026-10-26T01:00:03Z')];
++const afternoon=[meta('same-thread','2026-10-26T06:00:00Z'),...turn('turn-b','2026-10-26T06:00:01Z'),call('2026-10-26T06:00:02Z',200),...complete('turn-b','2026-10-26T06:00:03Z')];
++test('keeps disjoint rollout segments of one conversation and deduplicates archive copies',async t=>{
++ const home=await fixture(t);await write(path.join(home,'sessions','part-a.jsonl'),morning);await write(path.join(home,'sessions','part-b.jsonl'),afternoon);await write(path.join(home,'archived_sessions','copy-a.jsonl'),morning);
++ const data=await analyzeCodexUsage({codexHome:home});assert.equal(data.sessions.length,1);const session=data.sessions[0];assert.equal(session.usage.totalTokens,300);assert.equal(session.modelCalls,2);assert.equal(session.exchanges,2);assert.equal(session.userMessages,2);assert.equal(session.assistantMessages,2);assert.equal(session.durationMs,4000);
++ const again=await analyzeCodexUsage({codexHome:home,previousData:data});assert.equal(again.sessions[0].usage.totalTokens,300);
++ assert.ok(again.sessions[0].rolloutParts.every(part=>session.rolloutParts.includes(part)),'unchanged physical file parses are reused');
++ await appendFile(path.join(home,'sessions','part-b.jsonl'),[...turn('turn-c','2026-10-26T07:00:01Z'),call('2026-10-26T07:00:02Z',300),...complete('turn-c','2026-10-26T07:00:03Z')].map(JSON.stringify).join('\n')+'\n');
++ const changed=await analyzeCodexUsage({codexHome:home,previousData:again});assert.equal(changed.sessions[0].usage.totalTokens,600);assert.equal(changed.sessions[0].modelCalls,3);assert.equal(changed.sessions[0].exchanges,3);assert.equal(session.usage.totalTokens,300);
++ assert.equal('rolloutParts' in toPublicUsage(changed).sessions[0],false);assert.equal('messageEvents' in toPublicUsage(changed).sessions[0],false);assert.ok(!JSON.stringify(data).includes('private fixture'));
++});
++test('retains the first conversation identity and does not bill inherited pre-fork history twice',async t=>{
++ const home=await fixture(t);const file=path.join(home,'sessions','fork.jsonl');
++ await write(file,[meta('child','2026-10-26T08:00:00Z'),meta('parent','2026-10-25T01:00:00Z'),...turn('old','2026-10-25T01:00:01Z'),call('2026-10-25T01:00:02Z',900),...complete('old','2026-10-25T01:00:03Z'),...turn('new','2026-10-26T08:00:01Z'),call('2026-10-26T08:00:02Z',100),...complete('new','2026-10-26T08:00:03Z')]);
++ const session=await parseSessionFile(file);assert.equal(session.id,'child');assert.equal(session.startedAt,'2026-10-26T08:00:00Z');assert.equal(session.usage.totalTokens,100);assert.equal(session.exchanges,1);assert.equal(session.userMessages,1);
++});
++test('overlapping segments retain the maximum occurrence count, not a naive sum or a set',async t=>{
++ const home=await fixture(t);const same=call('2026-10-26T01:00:02Z',100);
++ await write(path.join(home,'sessions','a.jsonl'),[meta('same-thread','2026-10-26T01:00:00Z'),...turn('turn-a','2026-10-26T01:00:01Z'),same,same,...complete('turn-a','2026-10-26T01:00:03Z')]);
++ await write(path.join(home,'archived_sessions','b.jsonl'),[...morning,...turn('turn-b','2026-10-26T06:00:01Z'),call('2026-10-26T06:00:02Z',200),...complete('turn-b','2026-10-26T06:00:03Z')]);
++ const data=await analyzeCodexUsage({codexHome:home});assert.equal(data.sessions[0].usage.totalTokens,400);assert.equal(data.sessions[0].modelCalls,3);
++});
